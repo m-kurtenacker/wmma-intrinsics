@@ -23,19 +23,17 @@ struct Tensor {
     data : &mut [f16],
     x_dim : i32,
     y_dim : i32,
-    stride : i32,
-    x0 : i32,
-    y0 : i32
+    stride : i32 //row to row offset for this matrix.
 }
 
 struct Tensor1 {
     data : &mut addrspace(1)[f16],
     x_dim : i32,
     y_dim : i32,
-    stride : i32,
-    x0 : i32,
-    y0 : i32
+    stride : i32 //row to row offset for this matrix.
 }
+
+static addr_row = @|x : i32, y : i32, t : Tensor| { x + y * t.stride };
 
 fn matrix_multiply_naive(a : Tensor, b : Tensor, c : Tensor, r : Tensor) {
     let m = a.y_dim;
@@ -43,32 +41,28 @@ fn matrix_multiply_naive(a : Tensor, b : Tensor, c : Tensor, r : Tensor) {
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    let addr_row = @|x : i32, y : i32, s : i32| { x + y * s };
-
     for y in range(0, m) {
         for x in range(0, n) {
             let mut rv = 0 : f32;
 
             for i in range(0, k) {
-                let av = a.data(addr_row(i, y, a.x_dim)) as f32;
-                let bv = b.data(addr_row(x, i, b.x_dim)) as f32;
+                let av = a.data(addr_row(i, y, a)) as f32;
+                let bv = b.data(addr_row(x, i, b)) as f32;
 
                 rv += av * bv;
             }
 
-            let cv = c.data(addr_row(x, y, c.x_dim)) as f32;
+            let cv = c.data(addr_row(x, y, c)) as f32;
 
-            r.data(addr_row(x, y, r.x_dim)) = (cv + rv) as f16;
+            r.data(addr_row(x, y, r)) = (cv + rv) as f16;
         }
     }
 }
 
 fn print_matrix (t : Tensor) {
-    let addr_row = @|x : i32, y : i32, s : i32| { x + y * s };
-
     for y in range(0, t.y_dim) {
         for x in range(0, t.x_dim) {
-            print_f32(t.data(addr_row(x, y, t.x_dim)) as f32);
+            print_f32(t.data(addr_row(x, y, t)) as f32);
             if (x < t.x_dim - 1) { print_string(", "); }
         }
         print_string("\n");
@@ -81,26 +75,26 @@ fn cuda_gemm_base (a : Tensor1, b : Tensor1, c : Tensor1, d : Tensor1) {
     let c_cuda = bitcast[&addrspace(1)i8](c.data);
     let d_cuda = bitcast[&mut addrspace(1)i8](d.data);
 
-    let (a1, a2, a3, a4, a5, a6, a7, a8) = nvvm_load_a(a_cuda);
-    let (b1, b2, b3, b4, b5, b6, b7, b8) = nvvm_load_b(b_cuda);
-    let (c1, c2, c3, c4) = nvvm_load_c(c_cuda);
+    let (a1, a2, a3, a4, a5, a6, a7, a8) = if (a.stride > 16) { nvvm_load_a_stride(a_cuda, a.stride) } else { nvvm_load_a(a_cuda) };
+    let (b1, b2, b3, b4, b5, b6, b7, b8) = if (b.stride > 16) { nvvm_load_b_stride(b_cuda, b.stride) } else { nvvm_load_b(b_cuda) };
+    let (c1, c2, c3, c4) = if (c.stride > 16) { nvvm_load_c_stride(c_cuda, c.stride) } else { nvvm_load_c(c_cuda) };
 
     let (d1, d2, d3, d4) = nvvm_wmma (a1, a2, a3, a4, a5, a6, a7, a8,
                                       b1, b2, b3, b4, b5, b6, b7, b8,
                                       c1, c2, c3, c4);
 
-    nvvm_store_d(d_cuda, d1, d2, d3, d4);
+    if (d.stride > 16) { nvvm_store_d_stride(d_cuda, d1, d2, d3, d4, d.stride) } else { nvvm_store_d(d_cuda, d1, d2, d3, d4) };
 }
 
 #[export]
 fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let local_accel = nvvm_accelerator(0);
 
-    let a_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
-    let b_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
-    let c_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
-    let d_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
-    let r_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
+    let a_cpu_buffer = alloc_cpu(sizeof[f16]() * 512);
+    let b_cpu_buffer = alloc_cpu(sizeof[f16]() * 512);
+    let c_cpu_buffer = alloc_cpu(sizeof[f16]() * 512);
+    let d_cpu_buffer = alloc_cpu(sizeof[f16]() * 512);
+    let r_cpu_buffer = alloc_cpu(sizeof[f16]() * 512);
 
     let a_cpu = bitcast[&mut [f16]](a_cpu_buffer.data);
     let b_cpu = bitcast[&mut [f16]](b_cpu_buffer.data);
@@ -109,52 +103,87 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
 
     let r_cpu = bitcast[&mut [f16]](r_cpu_buffer.data);
 
-    for n in range(0, 256) {
+    for n in range(0, 512) {
         a_cpu(n) = random_val_f32() as f16;
         b_cpu(n) = random_val_f32() as f16;
-        //c_cpu(n) = random_val_f32() as f16;
-        //c_cpu(n) = n as f16;
-        c_cpu(n) = 0;
-        d_cpu(n) = 0;
+        c_cpu(n) = random_val_f32() as f16;
+        d_cpu(n) = 0 as f16;
+        r_cpu(n) = 0 as f16;
     }
 
-    //for k in range(0, 16) {
-    //    a_cpu(k * 16 + k) = 1.0 as f16;
-    //}
-
-    let a_tensor = Tensor { data = a_cpu, x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-    let b_tensor = Tensor { data = b_cpu, x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-    let c_tensor = Tensor { data = c_cpu, x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-    let d_tensor = Tensor { data = d_cpu, x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-    let r_tensor = Tensor { data = r_cpu, x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-
-    matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
-
-    let a_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
-    let b_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
-    let c_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
-    let d_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
+    let a_cuda_buffer = local_accel.alloc(sizeof[f16]() * 512);
+    let b_cuda_buffer = local_accel.alloc(sizeof[f16]() * 512);
+    let c_cuda_buffer = local_accel.alloc(sizeof[f16]() * 512);
+    let d_cuda_buffer = local_accel.alloc(sizeof[f16]() * 512);
 
     copy(a_cpu_buffer, a_cuda_buffer);
     copy(b_cpu_buffer, b_cuda_buffer);
     copy(c_cpu_buffer, c_cuda_buffer);
 
-    for _work_item in local_accel.exec((32, 1, 1), (32, 1, 1)) { //This should™ launch exactly one warp of threads.
-        let a_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](a_cuda_buffer.data), x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-        let b_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](b_cuda_buffer.data), x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-        let c_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](c_cuda_buffer.data), x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
-        let d_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](d_cuda_buffer.data), x_dim = 16, y_dim = 16, stride = 1, x0 = 0, y0 = 0 };
+    for work_item in local_accel.exec((64, 1, 1), (64, 1, 1)) { //This should™ launch exactly two warps of threads.
+        let a_cuda = bitcast[&mut addrspace(1)[f16]](a_cuda_buffer.data);
+        let b_cuda = bitcast[&mut addrspace(1)[f16]](b_cuda_buffer.data);
+        let c_cuda = bitcast[&mut addrspace(1)[f16]](c_cuda_buffer.data);
+        let d_cuda = bitcast[&mut addrspace(1)[f16]](d_cuda_buffer.data);
+
+        let warp_id = nvvm_warpid();
+
+        let a_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](&a_cuda(16 * warp_id)), x_dim = 16, y_dim = 16, stride = 32 };
+        let b_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](&b_cuda(256 * warp_id)), x_dim = 16, y_dim = 16, stride = 16 };
+        let c_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](&c_cuda(16 * warp_id)), x_dim = 16, y_dim = 16, stride = 32 };
+        let d_global_tensor = Tensor1 { data = bitcast[&mut addrspace(1)[f16]](&d_cuda(16 * warp_id)), x_dim = 16, y_dim = 16, stride = 32 };
 
         cuda_gemm_base(a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
     }
 
     copy(d_cuda_buffer, d_cpu_buffer);
 
-    for x in range(0, 256) {
-        r_cpu(x) = r_cpu(x) - d_cpu(x);
+    let a_tensor = Tensor { data = a_cpu, x_dim = 16, y_dim = 16, stride = 32 };
+    let b_tensor = Tensor { data = b_cpu, x_dim = 16, y_dim = 16, stride = 16 };
+    let c_tensor = Tensor { data = c_cpu, x_dim = 16, y_dim = 16, stride = 32 };
+    let r_tensor = Tensor { data = r_cpu, x_dim = 16, y_dim = 16, stride = 32 };
+
+    matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
+
+    let a_tensor2 = Tensor { data = bitcast[&mut[f16]](&a_cpu(16)),  x_dim = 16, y_dim = 16, stride = 32 };
+    let b_tensor2 = Tensor { data = bitcast[&mut[f16]](&b_cpu(256)), x_dim = 16, y_dim = 16, stride = 16 };
+    let c_tensor2 = Tensor { data = bitcast[&mut[f16]](&c_cpu(16)),  x_dim = 16, y_dim = 16, stride = 32 };
+    let r_tensor2 = Tensor { data = bitcast[&mut[f16]](&r_cpu(16)),  x_dim = 16, y_dim = 16, stride = 32 };
+
+    matrix_multiply_naive(a_tensor2, b_tensor2, c_tensor2, r_tensor2);
+
+    let fin_tensor = Tensor { data = r_cpu, x_dim = 32, y_dim = 16, stride = 32 };
+    let d_tensor = Tensor { data = d_cpu, x_dim = 32, y_dim = 16, stride = 32 };
+
+    print_string("Fin matrix:\n");
+    print_matrix(fin_tensor);
+    print_string("\n");
+    print_string("D matrix:\n");
+    print_matrix(d_tensor);
+    print_string("\n");
+
+    for x in range(0, d_tensor.x_dim) {
+        for y in range(0, d_tensor.y_dim) {
+            fin_tensor.data(addr_row(x, y, fin_tensor)) = fin_tensor.data(addr_row(x, y, fin_tensor)) - d_tensor.data(addr_row(x, y, d_tensor));
+        }
     }
 
-    print_matrix(r_tensor);
+    print_string("Difference:\n");
+    print_matrix(fin_tensor);
+    print_string("\n");
 
-    0
+    let mut max_error = 0 as f32;
+    for x in range(0, 512) {
+        max_error = cpu_intrinsics.fmaxf(max_error, cpu_intrinsics.fabsf(r_cpu(x) as f32));
+    }
+
+    if (max_error < 0.01) {
+        0
+    } else {
+        print_string("\n");
+        print_string("Max error: ");
+        print_f32(max_error);
+        print_string("\n");
+        1
+    }
 }
