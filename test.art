@@ -19,22 +19,6 @@
  *       (V      )
  */
 
-
-//See llvm-project/llvm/test/CodeGen/NVPTX $ python wmma-ptx71-sm80.py for a somewhat decent list of operations.
-#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.a.row.f16.p1")]
-fn nvvm_load_a (_addr : &addrspace(1)i8) -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
-#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.b.row.f16.p1")]
-fn nvvm_load_b (_addr : &addrspace(1)i8) -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
-#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.c.row.f16.p1")]
-fn nvvm_load_c (_addr : &addrspace(1)i8) -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
-
-#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.mma.row.row.f16.f16")]
-fn nvvm_wmma (_a0 : simd[f16 * 2], _a1 : simd[f16 * 2], _a2 : simd[f16 * 2], _a3 : simd[f16 * 2], _a4 : simd[f16 * 2], _a5 : simd[f16 * 2], _a6 : simd[f16 * 2], _a7 : simd[f16 * 2], _b0 : simd[f16 * 2], _b1 : simd[f16 * 2], _b2 : simd[f16 * 2], _b3 : simd[f16 * 2], _b4 : simd[f16 * 2], _b5 : simd[f16 * 2], _b6 : simd[f16 * 2], _b7 : simd[f16 * 2], _c0 : simd[f16 * 2], _c1 : simd[f16 * 2], _c2 : simd[f16 * 2], _c3 : simd[f16 * 2])
-        -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
-
-#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.store.d.row.f16.p1")]
-fn nvvm_store_d (_addr : &mut addrspace(1)i8, simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) -> ();
-
 struct Tensor {
     data : &mut [f16],
     x_dim : i32,
