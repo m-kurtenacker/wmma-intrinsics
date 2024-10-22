@@ -1,0 +1,135 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+
+//See llvm-project/llvm/test/CodeGen/NVPTX $ python wmma-ptx71-sm80.py for a somewhat decent list of operations.
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.a.row.f16.p1")]
+fn nvvm_load_a (_addr : &addrspace(1)i8) -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.b.row.f16.p1")]
+fn nvvm_load_b (_addr : &addrspace(1)i8) -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.c.row.f16.p1")]
+fn nvvm_load_c (_addr : &addrspace(1)i8) -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.mma.row.row.f16.f16")]
+fn nvvm_wmma (_a0 : simd[f16 * 2], _a1 : simd[f16 * 2], _a2 : simd[f16 * 2], _a3 : simd[f16 * 2], _a4 : simd[f16 * 2], _a5 : simd[f16 * 2], _a6 : simd[f16 * 2], _a7 : simd[f16 * 2], _b0 : simd[f16 * 2], _b1 : simd[f16 * 2], _b2 : simd[f16 * 2], _b3 : simd[f16 * 2], _b4 : simd[f16 * 2], _b5 : simd[f16 * 2], _b6 : simd[f16 * 2], _b7 : simd[f16 * 2], _c0 : simd[f16 * 2], _c1 : simd[f16 * 2], _c2 : simd[f16 * 2], _c3 : simd[f16 * 2])
+        -> (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.store.d.row.f16.p1")]
+fn nvvm_store_d (_addr : &mut addrspace(1)i8, simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) -> ();
+
+static addr_row = @|x : i32, y : i32| { x + y * 16 };
+
+fn matrix_multiply_naive(m : i32, n : i32, k : i32, a : &[f16], b : &[f16], c : &[f16], r : &mut [f16]) {
+    for y in range(0, m) {
+        for x in range(0, n) {
+            let mut rv = 0 : f32;
+
+            for i in range(0, k) {
+                let av = a(addr_row(i, y)) as f32;
+                let bv = b(addr_row(x, i)) as f32;
+
+                rv += av * bv;
+            }
+
+            let cv = c(addr_row(x, y)) as f32;
+
+            r(addr_row(x, y)) = (cv + rv) as f16;
+        }
+    }
+}
+
+fn print_matrix (n : i32, m : i32, t : &[f16]) {
+    for y in range(0, m) {
+        for x in range(0, n) {
+            print_f32(t(addr_row(x, y)) as f32);
+            if (x < n - 1) { print_string(", "); }
+        }
+        print_string("\n");
+    }
+}
+
+#[export]
+fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
+    let local_accel = nvvm_accelerator(0);
+
+    let a_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
+    let b_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
+    let c_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
+    let d_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
+    let r_cpu_buffer = alloc_cpu(sizeof[f16]() * 256);
+
+    let a_cpu = bitcast[&mut [f16]](a_cpu_buffer.data);
+    let b_cpu = bitcast[&mut [f16]](b_cpu_buffer.data);
+    let c_cpu = bitcast[&mut [f16]](c_cpu_buffer.data);
+    let d_cpu = bitcast[&mut [f16]](d_cpu_buffer.data);
+
+    let r_cpu = bitcast[&mut [f16]](r_cpu_buffer.data);
+
+    for n in range(0, 256) {
+        a_cpu(n) = random_val_f32() as f16;
+        b_cpu(n) = random_val_f32() as f16;
+        //c_cpu(n) = random_val_f32() as f16;
+        //c_cpu(n) = n as f16;
+        c_cpu(n) = 0;
+        d_cpu(n) = 0;
+    }
+
+    //for k in range(0, 16) {
+    //    a_cpu(k * 16 + k) = 1.0 as f16;
+    //}
+
+    matrix_multiply_naive(16, 16, 16, a_cpu, b_cpu, c_cpu, r_cpu);
+
+    let a_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
+    let b_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
+    let c_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
+    let d_cuda_buffer = local_accel.alloc(sizeof[f16]() * 256);
+
+    copy(a_cpu_buffer, a_cuda_buffer);
+    copy(b_cpu_buffer, b_cuda_buffer);
+    copy(c_cpu_buffer, c_cuda_buffer);
+
+    for _work_item in local_accel.exec((32, 1, 1), (32, 1, 1)) { //This should™ launch exactly one warp of threads.
+        let a_cuda = bitcast[&addrspace(1)i8](a_cuda_buffer.data);
+        let b_cuda = bitcast[&addrspace(1)i8](b_cuda_buffer.data);
+        let c_cuda = bitcast[&addrspace(1)i8](c_cuda_buffer.data);
+        let d_cuda = bitcast[&mut addrspace(1)i8](d_cuda_buffer.data);
+
+        let (a1, a2, a3, a4, a5, a6, a7, a8) = nvvm_load_a(a_cuda);
+        let (b1, b2, b3, b4, b5, b6, b7, b8) = nvvm_load_b(b_cuda);
+        let (c1, c2, c3, c4) = nvvm_load_c(c_cuda);
+
+        let (d1, d2, d3, d4) = nvvm_wmma (a1, a2, a3, a4, a5, a6, a7, a8,
+                                          b1, b2, b3, b4, b5, b6, b7, b8,
+                                          c1, c2, c3, c4);
+
+        nvvm_store_d(d_cuda, d1, d2, d3, d4);
+    }
+
+    copy(d_cuda_buffer, d_cpu_buffer);
+
+    for x in range(0, 256) {
+        r_cpu(x) = r_cpu(x) - d_cpu(x);
+    }
+    print_matrix(16, 16, r_cpu);
+
+    0
+}
