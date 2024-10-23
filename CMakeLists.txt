@@ -7,7 +7,7 @@ include_directories(${AnyDSL_runtime_INCLUDE_DIRS})
 
 anydsl_runtime_wrap(TEST_OBJ
     FRONTEND "artic"
-    FILES test.art intrinsics_wmma.art
+    FILES intrinsics_wmma.art test.art
 )
 
 add_executable(test ${TEST_OBJ})
