@@ -89,21 +89,55 @@ fn matrix_multiply_naive (a : Tensor, b : Tensor, c : Tensor, r : Tensor) -> () 
 }
 
 
-fn nvvm_gemm_base (a : Tensor1, b : Tensor1, c : Tensor1, d : Tensor1) -> () {
-    let a_cuda = bitcast[&addrspace(1)i8](a.data);
-    let b_cuda = bitcast[&addrspace(1)i8](b.data);
-    let c_cuda = bitcast[&addrspace(1)i8](c.data);
-    let d_cuda = bitcast[&mut addrspace(1)i8](d.data);
+fn nvvm_wmma_expand (a_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
+        b_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
+        c_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2])) {
+    let (a1, a2, a3, a4, a5, a6, a7, a8) = a_fragment;
+    let (b1, b2, b3, b4, b5, b6, b7, b8) = b_fragment;
+    let (c1, c2, c3, c4) = c_fragment;
 
-    let (a1, a2, a3, a4, a5, a6, a7, a8) = if (a.stride > 16) { nvvm_load_a_stride(a_cuda, a.stride) } else { nvvm_load_a(a_cuda) };
-    let (b1, b2, b3, b4, b5, b6, b7, b8) = if (b.stride > 16) { nvvm_load_b_stride(b_cuda, b.stride) } else { nvvm_load_b(b_cuda) };
-    let (c1, c2, c3, c4) = if (c.stride > 16) { nvvm_load_c_stride(c_cuda, c.stride) } else { nvvm_load_c(c_cuda) };
+    nvvm_wmma(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4)
+}
 
-    let (d1, d2, d3, d4) = nvvm_wmma (a1, a2, a3, a4, a5, a6, a7, a8,
-                                      b1, b2, b3, b4, b5, b6, b7, b8,
-                                      c1, c2, c3, c4);
+fn nvvm_load_a_expand(fragment_tensor : Tensor1) {
+    let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
 
-    if (d.stride > 16) { nvvm_store_d_stride(d_cuda, d1, d2, d3, d4, d.stride) } else { nvvm_store_d(d_cuda, d1, d2, d3, d4) };
+    if (fragment_tensor.stride > 16) {
+        nvvm_load_a_stride(cuda_data, fragment_tensor.stride)
+    } else {
+        nvvm_load_a(cuda_data)
+    }
+}
+
+fn nvvm_load_b_expand(fragment_tensor : Tensor1) {
+    let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
+
+    if (fragment_tensor.stride > 16) {
+        nvvm_load_b_stride(cuda_data, fragment_tensor.stride)
+    } else {
+        nvvm_load_b(cuda_data)
+    }
+}
+
+fn nvvm_load_c_expand(fragment_tensor : Tensor1) {
+    let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
+
+    if (fragment_tensor.stride > 16) {
+        nvvm_load_c_stride(cuda_data, fragment_tensor.stride)
+    } else {
+        nvvm_load_c(cuda_data)
+    }
+}
+
+fn nvvm_store_d_expand (d_fragment_tensor : Tensor1, acc_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2])) {
+    let d_cuda = bitcast[&mut addrspace(1)i8](d_fragment_tensor.data);
+    let (acc1, acc2, acc3, acc4) = acc_fragment;
+
+    if (d_fragment_tensor.stride > 16) {
+        nvvm_store_d_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride)
+    } else {
+        nvvm_store_d(d_cuda, acc1, acc2, acc3, acc4)
+    };
 }
 
 fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor1, b : Tensor1, c : Tensor1, d : Tensor1) -> () {
@@ -117,26 +151,24 @@ fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor1, b : Tensor1, c : Tenso
     let chunk_size_k = 16;
 
     for work_item in nvvm.exec((n * warp_size / chunk_size_x, m / chunk_size_y,  1), (warp_size, 1, 1)) { //We spawn (x * y * warp_size many threads in warp_size many blocks
+        let chunk_x = work_item.gidx() / warp_size * chunk_size_x;
+        let chunk_y = work_item.gidy() * chunk_size_y;
+
+        let c_fragment_tensor = sub_tensor1(c, chunk_x, chunk_y, chunk_size_x, chunk_size_y);
+        let mut acc_fragment = nvvm_load_c_expand(c_fragment_tensor);
+
         for i in range(0, k / chunk_size_k) {
-            let warp_id = nvvm_warpid() as i32;
-            let lane_id = nvvm_laneid() as i32;
-
-            let chunk_x = work_item.gidx() / warp_size * chunk_size_x;
-            let chunk_y = work_item.gidy() * chunk_size_y;
-
-            let debug = [ warp_id, chunk_x, chunk_y, i ];
-            if (lane_id == 0) {
-                nvvm_vprintf("%d %d %d %d\n", bitcast [&[u8]](&debug));
-            }
-
             let a_fragment_tensor = sub_tensor1(a, i * chunk_size_k, chunk_y, chunk_size_k, chunk_size_y);
             let b_fragment_tensor = sub_tensor1(b, chunk_x, i * chunk_size_k, chunk_size_x, chunk_size_k);
 
-            let d_fragment_tensor = sub_tensor1(d, chunk_x, chunk_y, chunk_size_x, chunk_size_y);
-            let c_fragment_tensor = if(i == 0) { sub_tensor1(c, chunk_x, chunk_y, chunk_size_x, chunk_size_y) } else { d_fragment_tensor };
+            let a_fragment = nvvm_load_a_expand(a_fragment_tensor);
+            let b_fragment = nvvm_load_b_expand(b_fragment_tensor);
 
-            nvvm_gemm_base(a_fragment_tensor, b_fragment_tensor, c_fragment_tensor, d_fragment_tensor);
+            acc_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment);
         }
+
+        let d_fragment_tensor = sub_tensor1(d, chunk_x, chunk_y, chunk_size_x, chunk_size_y);
+        nvvm_store_d_expand (d_fragment_tensor, acc_fragment)
     }
 }
 
