@@ -1,0 +1,127 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+// This should never change™.
+static warp_size = 32;
+
+struct Tensor_global {
+    data : &mut addrspace(1)[f16],
+    x_dim : i32,
+    y_dim : i32,
+    stride : i32 //row to row offset for this matrix.
+}
+
+fn @addr_row_global (x : i32, y : i32, t : Tensor_global) = x + y * t.stride;
+
+fn @sub_tensor_global (t : Tensor_global, x0 : i32, y0 : i32, xs : i32, ys : i32) =
+    Tensor_global {data = bitcast [&mut addrspace(1)[f16]](&t.data(addr_row_global(x0, y0, t))),
+             x_dim = xs,
+             y_dim = ys,
+             stride = t.stride
+             };
+
+
+fn @nvvm_wmma_expand (a_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
+        b_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
+        c_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2])) {
+    let (a1, a2, a3, a4, a5, a6, a7, a8) = a_fragment;
+    let (b1, b2, b3, b4, b5, b6, b7, b8) = b_fragment;
+    let (c1, c2, c3, c4) = c_fragment;
+
+    nvvm_wmma(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4)
+}
+
+fn @nvvm_load_a_expand(fragment_tensor : Tensor_global) {
+    let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
+
+    if (fragment_tensor.stride > 16) {
+        nvvm_load_a_stride(cuda_data, fragment_tensor.stride)
+    } else {
+        nvvm_load_a(cuda_data)
+    }
+}
+
+fn @nvvm_load_b_expand(fragment_tensor : Tensor_global) {
+    let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
+
+    if (fragment_tensor.stride > 16) {
+        nvvm_load_b_stride(cuda_data, fragment_tensor.stride)
+    } else {
+        nvvm_load_b(cuda_data)
+    }
+}
+
+fn @nvvm_load_c_expand(fragment_tensor : Tensor_global) {
+    let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
+
+    if (fragment_tensor.stride > 16) {
+        nvvm_load_c_stride(cuda_data, fragment_tensor.stride)
+    } else {
+        nvvm_load_c(cuda_data)
+    }
+}
+
+fn @nvvm_store_d_expand (d_fragment_tensor : Tensor_global, acc_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2])) {
+    let d_cuda = bitcast[&mut addrspace(1)i8](d_fragment_tensor.data);
+    let (acc1, acc2, acc3, acc4) = acc_fragment;
+
+    if (d_fragment_tensor.stride > 16) {
+        nvvm_store_d_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride)
+    } else {
+        nvvm_store_d(d_cuda, acc1, acc2, acc3, acc4)
+    };
+}
+
+
+fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor_global, b : Tensor_global, c : Tensor_global, d : Tensor_global) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    let chunk_size_x = 16;
+    let chunk_size_y = 16;
+    let chunk_size_k = 16;
+
+    for work_item in nvvm.exec((n * warp_size / chunk_size_x, m / chunk_size_y,  1), (warp_size, 1, 1)) { //We spawn (x * y * warp_size many threads in warp_size many blocks
+        let chunk_x = work_item.gidx() / warp_size * chunk_size_x;
+        let chunk_y = work_item.gidy() * chunk_size_y;
+
+        let c_fragment_tensor = sub_tensor_global(c, chunk_x, chunk_y, chunk_size_x, chunk_size_y);
+        let mut acc_fragment = nvvm_load_c_expand(c_fragment_tensor);
+
+        for i in range(0, k / chunk_size_k) {
+            let id = [nvvm_warpid() as i32, i, chunk_x, chunk_y];
+            if (nvvm_laneid() == 0) { nvvm_vprintf("%d %d %d %d\n", bitcast[&[u8]](&id)); }
+
+            let a_fragment_tensor = sub_tensor_global(a, i * chunk_size_k, chunk_y, chunk_size_k, chunk_size_y);
+            let b_fragment_tensor = sub_tensor_global(b, chunk_x, i * chunk_size_k, chunk_size_x, chunk_size_k);
+
+            let a_fragment = nvvm_load_a_expand(a_fragment_tensor);
+            let b_fragment = nvvm_load_b_expand(b_fragment_tensor);
+
+            acc_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment);
+        }
+
+        let d_fragment_tensor = sub_tensor_global(d, chunk_x, chunk_y, chunk_size_x, chunk_size_y);
+        nvvm_store_d_expand (d_fragment_tensor, acc_fragment)
+    }
+}
