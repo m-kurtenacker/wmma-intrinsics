@@ -1,40 +1,36 @@
-anydsl_runtime_wrap(SIMPLE_OBJ
-    FRONTEND "artic"
-    FILES ${BACKEND_FILES} simple.art
-)
+function (add_wmma_test)
+    cmake_parse_arguments(
+        "PARGS"
+        ""
+        "NAME"
+        "FILES"
+        ${ARGN})
 
-add_executable(simple ${SIMPLE_OBJ})
-target_link_libraries(simple ${AnyDSL_runtime_LIBRARIES})
+    string(TOUPPER ${PARGS_NAME} _name)
 
-set_property(TARGET simple
-    APPEND PROPERTY ADDITIONAL_CLEAN_FILES simple.nvvm simple.nvvm.bc cache)
+    anydsl_runtime_wrap(${_name}_OBJ
+        FRONTEND "artic"
+        NAME ${PARGS_NAME}
+        FILES ${BACKEND_FILES} ${PARGS_FILES}
+    )
 
-add_test(NAME simple_test COMMAND simple)
+    add_executable(${PARGS_NAME} ${${_name}_OBJ})
+    target_link_libraries(${PARGS_NAME} ${AnyDSL_runtime_LIBRARIES})
 
+    set_property(TARGET ${PARGS_NAME}
+        APPEND PROPERTY ADDITIONAL_CLEAN_FILES ${PARGS_NAME}.nvvm ${PARGS_NAME}.nvvm.bc cache)
+    add_test(NAME ${PARGS_NAME}_test COMMAND ${PARGS_NAME})
+endfunction()
 
-anydsl_runtime_wrap(MEDIUM_OBJ
-    FRONTEND "artic"
-    FILES ${BACKEND_FILES} medium.art
-)
+add_wmma_test(NAME simple FILES common.art simple.art)
+add_wmma_test(NAME layout FILES common.art layout.art)
 
-add_executable(medium ${MEDIUM_OBJ})
-target_link_libraries(medium ${AnyDSL_runtime_LIBRARIES})
-
-set_property(TARGET medium
-    APPEND PROPERTY ADDITIONAL_CLEAN_FILES medium.nvvm medium.nvvm.bc cache)
-
-add_test(NAME medium_test COMMAND medium)
-
-
-anydsl_runtime_wrap(LARGE_OBJ
-    FRONTEND "artic"
-    FILES ${BACKEND_FILES} large.art
-)
-
-add_executable(large ${LARGE_OBJ})
-target_link_libraries(large ${AnyDSL_runtime_LIBRARIES})
-
-set_property(TARGET large
-    APPEND PROPERTY ADDITIONAL_CLEAN_FILES large.nvvm large.nvvm.bc cache)
-
-#add_test(NAME large_test COMMAND large)
+file(GLOB GENERATED_TESTS generated/*.art)
+if(NOT GENERATED_TESTS)
+    message(STATUS "No generated tests found. Consider generating with `python generate-cases.py`")
+endif()
+foreach(_case ${GENERATED_TESTS})
+    get_filename_component(TESTNAME ${_case} NAME_WLE)
+    message(STATUS "Generated test ${TESTNAME}")
+    add_wmma_test(NAME ${TESTNAME} FILES common.art ${_case})
+endforeach()

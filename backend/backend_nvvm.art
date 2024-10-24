@@ -46,41 +46,80 @@ fn @sub_tensor_global (t : Tensor_global, x0 : i32, y0 : i32, xs : i32, ys : i32
 
 fn @nvvm_wmma_expand (a_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
         b_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
-        c_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2])) {
+        c_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
+        a_mode : AddrMode,
+        b_mode : AddrMode,
+        ) {
     let (a1, a2, a3, a4, a5, a6, a7, a8) = a_fragment;
     let (b1, b2, b3, b4, b5, b6, b7, b8) = b_fragment;
     let (c1, c2, c3, c4) = c_fragment;
 
-    nvvm_wmma(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4)
+    match (a_mode, b_mode) {
+        (AddrMode::RowMayor, AddrMode::RowMayor) =>
+            nvvm_wmma_row_row(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
+        (AddrMode::ColMayor, AddrMode::RowMayor) =>
+            nvvm_wmma_col_row(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
+        (AddrMode::RowMayor, AddrMode::ColMayor) =>
+            nvvm_wmma_row_col(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
+        (AddrMode::ColMayor, AddrMode::ColMayor) =>
+            nvvm_wmma_col_col(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4)
+    }
 }
 
 fn @nvvm_load_a_expand(fragment_tensor : Tensor_global) {
     let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
 
-    if (fragment_tensor.stride > 16) {
-        nvvm_load_a_stride(cuda_data, fragment_tensor.stride)
-    } else {
-        nvvm_load_a(cuda_data)
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMayor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_load_a_row_stride(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_load_a_row(cuda_data)
+            },
+        AddrMode::ColMayor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_load_a_col_stride(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_load_a_col(cuda_data)
+            }
     }
 }
 
 fn @nvvm_load_b_expand(fragment_tensor : Tensor_global) {
     let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
 
-    if (fragment_tensor.stride > 16) {
-        nvvm_load_b_stride(cuda_data, fragment_tensor.stride)
-    } else {
-        nvvm_load_b(cuda_data)
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMayor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_load_b_row_stride(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_load_b_row(cuda_data)
+            },
+        AddrMode::ColMayor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_load_b_col_stride(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_load_b_col(cuda_data)
+            }
     }
 }
 
 fn @nvvm_load_c_expand(fragment_tensor : Tensor_global) {
     let cuda_data = bitcast[&addrspace(1)i8](fragment_tensor.data);
 
-    if (fragment_tensor.stride > 16) {
-        nvvm_load_c_stride(cuda_data, fragment_tensor.stride)
-    } else {
-        nvvm_load_c(cuda_data)
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMayor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_load_c_row_stride(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_load_c_row(cuda_data)
+            },
+        AddrMode::ColMayor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_load_c_col_stride(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_load_c_col(cuda_data)
+            }
     }
 }
 
@@ -88,11 +127,20 @@ fn @nvvm_store_d_expand (d_fragment_tensor : Tensor_global, acc_fragment : (simd
     let d_cuda = bitcast[&mut addrspace(1)i8](d_fragment_tensor.data);
     let (acc1, acc2, acc3, acc4) = acc_fragment;
 
-    if (d_fragment_tensor.stride > 16) {
-        nvvm_store_d_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride)
-    } else {
-        nvvm_store_d(d_cuda, acc1, acc2, acc3, acc4)
-    };
+    match d_fragment_tensor.addr_mode {
+        AddrMode::RowMayor =>
+            if (d_fragment_tensor.stride > 16) {
+                nvvm_store_d_row_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride)
+            } else {
+                nvvm_store_d_row(d_cuda, acc1, acc2, acc3, acc4)
+            },
+        AddrMode::ColMayor =>
+            if (d_fragment_tensor.stride > 16) {
+                nvvm_store_d_col_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride)
+            } else {
+                nvvm_store_d_col(d_cuda, acc1, acc2, acc3, acc4)
+            }
+    }
 }
 
 
@@ -123,7 +171,7 @@ fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor_global, b : Tensor_globa
             let a_fragment = nvvm_load_a_expand(a_fragment_tensor);
             let b_fragment = nvvm_load_b_expand(b_fragment_tensor);
 
-            acc_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment);
+            acc_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
         }
 
         let d_fragment_tensor = sub_tensor_global(d, chunk_x, chunk_y, chunk_size_x, chunk_size_y);
