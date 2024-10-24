@@ -54,10 +54,10 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     copy(b_cpu_buffer, b_cuda_buffer);
     copy(c_cpu_buffer, c_cuda_buffer);
 
-    let a_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](a_cuda_buffer.data), x_dim = K, y_dim = M, stride = K };
-    let b_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](b_cuda_buffer.data), x_dim = N, y_dim = K, stride = N };
-    let c_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](c_cuda_buffer.data), x_dim = N, y_dim = M, stride = N };
-    let d_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, stride = N };
+    let a_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = AddrMode::RowMayor, stride = K };
+    let b_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = AddrMode::RowMayor, stride = N };
+    let c_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
+    let d_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
 
     // NVVM multiply tensors
     matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
@@ -66,15 +66,15 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     copy(d_cuda_buffer, d_cpu_buffer);
 
     // Ref implementation
-    let a_tensor = Tensor { data = a_cpu, x_dim = K, y_dim = M, stride = K };
-    let b_tensor = Tensor { data = b_cpu, x_dim = N, y_dim = K, stride = N };
-    let c_tensor = Tensor { data = c_cpu, x_dim = N, y_dim = M, stride = N };
-    let r_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, stride = N };
+    let a_tensor = Tensor { data = a_cpu, x_dim = K, y_dim = M, addr_mode = AddrMode::RowMayor, stride = K };
+    let b_tensor = Tensor { data = b_cpu, x_dim = N, y_dim = K, addr_mode = AddrMode::RowMayor, stride = N };
+    let c_tensor = Tensor { data = c_cpu, x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
+    let r_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
     matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
 
     // Compare results
-    let fin_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, stride = N };
-    let d_tensor = Tensor { data = d_cpu, x_dim = N, y_dim = M, stride = N };
+    let fin_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
+    let d_tensor = Tensor { data = d_cpu, x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
 
     print_string("Fin matrix:\n");
     print_matrix(fin_tensor);
@@ -85,7 +85,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
 
     for x in range(0, d_tensor.x_dim) {
         for y in range(0, d_tensor.y_dim) {
-            fin_tensor.data(addr_row(x, y, fin_tensor)) = fin_tensor.data(addr_row(x, y, fin_tensor)) - d_tensor.data(addr_row(x, y, d_tensor));
+            fin_tensor.data(addr_tensor(x, y, fin_tensor)) = fin_tensor.data(addr_tensor(x, y, fin_tensor)) - d_tensor.data(addr_tensor(x, y, d_tensor));
         }
     }
 

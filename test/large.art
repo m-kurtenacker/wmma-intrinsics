@@ -23,9 +23,9 @@
 fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let nvvm = nvvm_accelerator(0);
 
-    let N = 16;
-    let M = 16;
-    let K = 16;
+    let N = 4096;
+    let M = 4096;
+    let K = 4096;
 
     // Produce data set on host
     let a_cpu_buffer = alloc_cpu(sizeof[f16]() * (K * M) as i64);
@@ -60,6 +60,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let d_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
 
     // NVVM multiply tensors
+    print_string("Computing NVVM\n");
     matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
 
     // Fetch result
@@ -70,6 +71,8 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let b_tensor = Tensor { data = b_cpu, x_dim = N, y_dim = K, addr_mode = AddrMode::RowMayor, stride = N };
     let c_tensor = Tensor { data = c_cpu, x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
     let r_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, addr_mode = AddrMode::RowMayor, stride = N };
+
+    print_string("Computing CPU\n");
     matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
 
     // Compare results

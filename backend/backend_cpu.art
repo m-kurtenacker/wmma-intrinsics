@@ -23,22 +23,27 @@ struct Tensor {
     data : &mut [f16],
     x_dim : i32,
     y_dim : i32,
+    addr_mode : AddrMode,
     stride : i32 //row to row offset for this matrix.
 }
 
-fn @addr_row (x : i32, y : i32, t : Tensor) = x + y * t.stride;
+fn @addr_tensor (x : i32, y : i32, t : Tensor) = match t.addr_mode {
+    AddrMode::RowMayor => x + y * t.stride,
+    AddrMode::ColMayor => x * t.stride + y
+};
 
 fn @sub_tensor(t : Tensor, x0 : i32, y0 : i32, xs : i32, ys : i32) =
-    Tensor {data = bitcast [&mut [f16]](&t.data(addr_row(x0, y0, t))),
+    Tensor {data = bitcast [&mut [f16]](&t.data(addr_tensor(x0, y0, t))),
              x_dim = xs,
              y_dim = ys,
+             addr_mode = t.addr_mode,
              stride = t.stride
              };
 
 fn print_matrix (t : Tensor) -> () {
     for y in range(0, t.y_dim) {
         for x in range(0, t.x_dim) {
-            print_f32(t.data(addr_row(x, y, t)) as f32);
+            print_f32(t.data(addr_tensor(x, y, t)) as f32);
             if (x < t.x_dim - 1) { print_string(", "); }
         }
         print_string("\n");
@@ -57,15 +62,15 @@ fn matrix_multiply_naive (a : Tensor, b : Tensor, c : Tensor, r : Tensor) -> () 
             let mut rv = 0 : f32;
 
             for i in range(0, k) {
-                let av = a.data(addr_row(i, y, a)) as f32;
-                let bv = b.data(addr_row(x, i, b)) as f32;
+                let av = a.data(addr_tensor(i, y, a)) as f32;
+                let bv = b.data(addr_tensor(x, i, b)) as f32;
 
                 rv += av * bv;
             }
 
-            let cv = c.data(addr_row(x, y, c)) as f32;
+            let cv = c.data(addr_tensor(x, y, c)) as f32;
 
-            r.data(addr_row(x, y, r)) = (cv + rv) as f16;
+            r.data(addr_tensor(x, y, r)) = (cv + rv) as f16;
         }
     }
 }

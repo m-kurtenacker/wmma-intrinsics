@@ -1,0 +1,4 @@
+enum AddrMode {
+    RowMayor,
+    ColMayor
+}

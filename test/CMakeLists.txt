@@ -11,6 +11,7 @@ set_property(TARGET simple
 
 add_test(NAME simple_test COMMAND simple)
 
+
 anydsl_runtime_wrap(MEDIUM_OBJ
     FRONTEND "artic"
     FILES ${BACKEND_FILES} medium.art
@@ -23,3 +24,17 @@ set_property(TARGET medium
     APPEND PROPERTY ADDITIONAL_CLEAN_FILES medium.nvvm medium.nvvm.bc cache)
 
 add_test(NAME medium_test COMMAND medium)
+
+
+anydsl_runtime_wrap(LARGE_OBJ
+    FRONTEND "artic"
+    FILES ${BACKEND_FILES} large.art
+)
+
+add_executable(large ${LARGE_OBJ})
+target_link_libraries(large ${AnyDSL_runtime_LIBRARIES})
+
+set_property(TARGET large
+    APPEND PROPERTY ADDITIONAL_CLEAN_FILES large.nvvm large.nvvm.bc cache)
+
+#add_test(NAME large_test COMMAND large)
