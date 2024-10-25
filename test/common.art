@@ -56,10 +56,10 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     copy(b_cpu_buffer, b_cuda_buffer);
     copy(c_cpu_buffer, c_cuda_buffer);
 
-    let a_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
-    let b_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
-    let c_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
-    let d_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let a_global_tensor = Tensor { data = bitcast[&mut[f16]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_global_tensor = Tensor { data = bitcast[&mut[f16]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_global_tensor = Tensor { data = bitcast[&mut[f16]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let d_global_tensor = Tensor { data = bitcast[&mut[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
     // NVVM multiply tensors
     print_string("NVVM multiplication:\n");
