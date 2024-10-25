@@ -24,6 +24,7 @@ endfunction()
 
 add_wmma_test(NAME simple FILES common.art simple.art)
 add_wmma_test(NAME layout FILES common.art layout.art)
+add_wmma_test(NAME large  FILES common.art large.art )
 
 file(GLOB GENERATED_TESTS generated/*.art)
 if(NOT GENERATED_TESTS)
