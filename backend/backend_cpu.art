@@ -57,6 +57,8 @@ fn matrix_multiply_naive (a : Tensor, b : Tensor, c : Tensor, r : Tensor) -> () 
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
+    let print_progress = (m as i64 * n as i64 * k as i64) > (128 * 128 * 128);
+
     for y in range(0, m) {
         for x in range(0, n) {
             let mut rv = 0 : f32;
@@ -72,5 +74,14 @@ fn matrix_multiply_naive (a : Tensor, b : Tensor, c : Tensor, r : Tensor) -> () 
 
             r.data(addr_tensor(x, y, r)) = (cv + rv) as f16;
         }
+        if (print_progress) {
+            print_string("\r");
+            print_i32(y * 100 / m);
+            print_string("%");
+            print_flush();
+        }
+    }
+    if (print_progress) {
+        print_string("\r");
     }
 }

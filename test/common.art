@@ -19,6 +19,8 @@
  *       (V      )
  */
 
+static debug_prints = false;
+
 #[export]
 fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let nvvm = nvvm_accelerator(0);
@@ -41,7 +43,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let r_cpu = bitcast[&mut [f16]](r_cpu_buffer.data);
 
     for n in range(0, M * K) { a_cpu(n) = random_val_f32() as f16; }
-    for n in range(0, N * K) { b_cpu(n) = random_val_f32() as f16; } 
+    for n in range(0, N * K) { b_cpu(n) = random_val_f32() as f16; }
     for n in range(0, N * M) { c_cpu(n) = random_val_f32() as f16; d_cpu(n) = 0 as f16; r_cpu(n) = 0 as f16; }
 
     // Copy data to device
@@ -60,51 +62,59 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let d_global_tensor = Tensor_global { data = bitcast[&mut addrspace(1)[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
     // NVVM multiply tensors
+    print_string("NVVM multiplication:\n");
     matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    print_string("Done!\n");
 
     // Fetch result
     copy(d_cuda_buffer, d_cpu_buffer);
 
-    // Ref implementation
     let a_tensor = Tensor { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
     let b_tensor = Tensor { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
     let c_tensor = Tensor { data = c_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
     let r_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+
+    // Ref implementation
+    print_string("CPU multiplication:\n");
     matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
+    print_string("Done!\n");
 
     // Compare results
-    let fin_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
     let d_tensor = Tensor { data = d_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
-    print_string("Fin matrix:\n");
-    print_matrix(fin_tensor);
-    print_string("\n");
-    print_string("D matrix:\n");
-    print_matrix(d_tensor);
-    print_string("\n");
+    if (debug_prints) {
+        print_string("NVVM result:\n");
+        print_matrix(d_tensor);
+        print_string("\n");
+        print_string("CPU result:\n");
+        print_matrix(r_tensor);
+        print_string("\n");
+    }
 
     for x in range(0, d_tensor.x_dim) {
         for y in range(0, d_tensor.y_dim) {
-            fin_tensor.data(addr_tensor(x, y, fin_tensor)) = fin_tensor.data(addr_tensor(x, y, fin_tensor)) - d_tensor.data(addr_tensor(x, y, d_tensor));
+            r_tensor.data(addr_tensor(x, y, r_tensor)) = r_tensor.data(addr_tensor(x, y, r_tensor)) - d_tensor.data(addr_tensor(x, y, d_tensor));
         }
     }
 
-    print_string("Difference:\n");
-    print_matrix(fin_tensor);
-    print_string("\n");
+    if (debug_prints) {
+        print_string("Difference:\n");
+        print_matrix(r_tensor);
+        print_string("\n");
+    }
 
     let mut max_error = 0 as f32;
     for x in range(0, N * M) {
         max_error = cpu_intrinsics.fmaxf(max_error, cpu_intrinsics.fabsf(r_cpu(x) as f32));
     }
 
+    print_string("Max error: ");
+    print_f32(max_error);
+    print_string("\n");
+
     if (max_error < 0.05) {
         0
     } else {
-        print_string("\n");
-        print_string("Max error: ");
-        print_f32(max_error);
-        print_string("\n");
         1
     }
 }
