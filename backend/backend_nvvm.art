@@ -154,7 +154,10 @@ fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor_global, b : Tensor_globa
     let chunk_size_y = 16;
     let chunk_size_k = 16;
 
-    for work_item in nvvm.exec((n * warp_size / chunk_size_x, m / chunk_size_y,  1), (warp_size, 1, 1)) { //We spawn (x * y * warp_size many threads in warp_size many blocks
+    let block_factor_x = select(n % (chunk_size_x * 2) != 0, 1, select(n % (chunk_size_x * 4) != 0, 2, 4));
+    let block_factor_y = select(m % (chunk_size_y * 2) != 0, 1, select(m % (chunk_size_y * 4) != 0, 2, 4));
+
+    for work_item in nvvm.exec((n * warp_size / chunk_size_x, m / chunk_size_y,  1), (warp_size * block_factor_x, block_factor_y, 1)) { //We spawn (x * y * warp_size many threads in warp_size many blocks
         let chunk_x = work_item.gidx() / warp_size * chunk_size_x;
         let chunk_y = work_item.gidy() * chunk_size_y;
 
