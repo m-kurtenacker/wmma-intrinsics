@@ -196,32 +196,53 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
                 let chunk_y = work_item.gidy() * warp_y_chunks * chunk_size_y + iteration_y * max_y_blocks * chunk_size_y * block_chunks_y;
 
                 let warp_id = nvvm_warpid() as i32;
+                let lane_id = nvvm_laneid() as i32;
                 let shared_memory = bitcast[&mut [f16]](reserve_shared[f16](total_shared_storage));
                 let shared_chunk = bitcast[&mut[f16]](&shared_memory(warp_id * warp_shared_storage));
                 //TODO: This geometry might be sub-optimal due to the relatively large stride.
                 let shared_tensor = Tensor { data = shared_chunk, x_dim = chunk_size_x * warp_x_chunks, y_dim = chunk_size_y * warp_y_chunks, addr_mode = AddrMode::RowMayor, stride = chunk_size_x * warp_x_chunks };
 
-                for x_block in range(0, warp_x_chunks) {
+                //Copy "our" chunk of C to shared memory.
+                for x in range_step(0, warp_x_chunks * chunk_size_x, warp_size) {
+                    for y in range(0, warp_y_chunks * chunk_size_y) {
+                        let x_global = chunk_x + x + lane_id;
+                        let y_global = chunk_y + y;
+
+                        shared_tensor.data(addr_tensor(x + lane_id, y, shared_tensor)) = c.data(addr_tensor(x_global, y_global, c));
+                    }
+                }
+                //Alternative version using wmma intrinsics
+                /*for x_block in range(0, warp_x_chunks) {
                     for y_block in range(0, warp_y_chunks) {
                         let local_x = chunk_x + x_block * chunk_size_x;
                         let local_y = chunk_y + y_block * chunk_size_y;
 
                         let c_fragment_tensor = sub_tensor(c, local_x, local_y, chunk_size_x, chunk_size_y);
-                        let c_fragment = nvvm_load_c_expand(c_fragment_tensor);
-
                         let shared_fragment_tensor = sub_tensor(shared_tensor, x_block * chunk_size_x, y_block * chunk_size_y, chunk_size_x, chunk_size_y);
+
+                        let c_fragment = nvvm_load_c_expand(c_fragment_tensor);
                         nvvm_store_d_expand (shared_fragment_tensor, c_fragment);
+                    }
+                }*/
+
+                let mut acc_fragments : [[(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 2] * 4];
+
+                for x_block in range(0, warp_x_chunks) {
+                    for y_block in range(0, warp_y_chunks) {
+                        let shared_fragment_tensor = sub_tensor(shared_tensor, x_block * chunk_size_x, y_block * chunk_size_y, chunk_size_x, chunk_size_y);
+                        let shared_fragment = nvvm_load_c_expand(shared_fragment_tensor);
+
+                        acc_fragments(x_block)(y_block) = shared_fragment;
                     }
                 }
 
                 for i in range_step(0, k, chunk_size_k) {
                     for x_block in range(0, warp_x_chunks) {
                         for y_block in range(0, warp_y_chunks) {
+                            let shared_fragment = acc_fragments(x_block)(y_block);
+
                             let local_x = chunk_x + x_block * chunk_size_x;
                             let local_y = chunk_y + y_block * chunk_size_y;
-
-                            let shared_fragment_tensor = sub_tensor(shared_tensor, x_block * chunk_size_x, y_block * chunk_size_y, chunk_size_x, chunk_size_y);
-                            let shared_fragment = nvvm_load_c_expand(shared_fragment_tensor);
 
                             let a_fragment_tensor = sub_tensor(a, i, local_y, chunk_size_k, chunk_size_y);
                             let b_fragment_tensor = sub_tensor(b, local_x, i, chunk_size_x, chunk_size_k);
@@ -230,12 +251,32 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
                             let b_fragment = nvvm_load_b_expand(b_fragment_tensor);
 
                             let result_fragment = nvvm_wmma_expand (a_fragment, b_fragment, shared_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
-                            nvvm_store_d_expand (shared_fragment_tensor, result_fragment);
+
+                            acc_fragments(x_block)(y_block) = result_fragment;
                         }
                     }
                 }
 
                 for x_block in range(0, warp_x_chunks) {
+                    for y_block in range(0, warp_y_chunks) {
+                        let shared_fragment_tensor = sub_tensor(shared_tensor, x_block * chunk_size_x, y_block * chunk_size_y, chunk_size_x, chunk_size_y);
+
+                        let result_fragment = acc_fragments(x_block)(y_block);
+                        nvvm_store_d_expand (shared_fragment_tensor, result_fragment);
+                    }
+                }
+
+                //Return "our" chunk of D to global memory.
+                for x in range_step(0, warp_x_chunks * chunk_size_x, warp_size) {
+                    for y in range(0, warp_y_chunks * chunk_size_y) {
+                        let x_global = chunk_x + x + lane_id;
+                        let y_global = chunk_y + y;
+
+                        d.data(addr_tensor(x_global, y_global, c)) = shared_tensor.data(addr_tensor(x + lane_id, y, shared_tensor));
+                    }
+                }
+                //Alternative version using wmma intrinsics
+                /*for x_block in range(0, warp_x_chunks) {
                     for y_block in range(0, warp_y_chunks) {
                         let local_x = chunk_x + x_block * chunk_size_x;
                         let local_y = chunk_y + y_block * chunk_size_y;
@@ -246,7 +287,7 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
                         let d_fragment_tensor = sub_tensor(d, local_x, local_y, chunk_size_x, chunk_size_y);
                         nvvm_store_d_expand (d_fragment_tensor, shared_fragment)
                     }
-                }
+                }*/
             }
         }
     }
@@ -266,7 +307,7 @@ fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor,
     let block_factor_x = select(n % (chunk_size_x * 2) != 0, 1, select(n % (chunk_size_x * 4) != 0, 2, 4));
     let block_factor_y = select(m % (chunk_size_y * 2) != 0, 1, select(m % (chunk_size_y * 4) != 0, 2, 4));
 
-    for work_item in nvvm.exec((n * warp_size / chunk_size_x, m / chunk_size_y,  1), (warp_size * block_factor_x, block_factor_y, 1)) { //We spawn (x * y * warp_size many threads in warp_size many blocks
+    for work_item in nvvm.exec((n * warp_size / chunk_size_x, m / chunk_size_y,  1), (warp_size * block_factor_x, block_factor_y, 1)) {
         let chunk_x = work_item.gidx() / warp_size * chunk_size_x;
         let chunk_y = work_item.gidy() * chunk_size_y;
 
@@ -274,9 +315,6 @@ fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor,
         let mut acc_fragment = nvvm_load_c_expand(c_fragment_tensor);
 
         for i in range_step(0, k, chunk_size_k) {
-            //let id = [nvvm_warpid() as i32, i, chunk_x, chunk_y];
-            //if (nvvm_laneid() == 0) { nvvm_vprintf("%d %d %d %d\n", bitcast[&[u8]](&id)); }
-
             let a_fragment_tensor = sub_tensor(a, i, chunk_y, chunk_size_k, chunk_size_y);
             let b_fragment_tensor = sub_tensor(b, chunk_x, i, chunk_size_x, chunk_size_k);
 
