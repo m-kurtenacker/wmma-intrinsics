@@ -1,6 +1,6 @@
 from itertools import product
 
-sizes = ["16", "32", "64"]
+sizes = ["16", "32", "64", "128", "256"]
 layouts = ["row", "col"]
 
 def translate(layout):
