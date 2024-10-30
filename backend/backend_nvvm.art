@@ -294,6 +294,116 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
 }
 
 
+fn matrix_multiply_nvvm_tiled (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    let chunk_size_x = 16;
+    let chunk_size_y = 16;
+    let chunk_size_k = 16;
+
+    //Each block will calculated x * y many chunks.
+    let block_chunks_x = 8;
+    let block_chunks_y = 8;
+
+    //Each warp will be used to calcuate this geometry of chunks.
+    let warp_x_chunks = 2;
+    let warp_y_chunks = 4;
+
+    //Each block consists of this many warps.
+    let x_warps_per_block = block_chunks_x / warp_x_chunks;
+    let y_warps_per_block = block_chunks_y / warp_y_chunks;
+
+    let num_x_warps = n / chunk_size_x / warp_x_chunks;
+    let num_y_warps = m / chunk_size_y / warp_y_chunks;
+
+    let matrix_x_blocks = num_x_warps / x_warps_per_block;
+    let matrix_y_blocks = num_y_warps / y_warps_per_block;
+
+    let block_x_threads = x_warps_per_block * warp_size;
+    let block_y_threads = y_warps_per_block;
+
+    let x_threads = matrix_x_blocks * block_x_threads;
+    let y_threads = matrix_y_blocks * block_y_threads;
+
+    print_string("tiled configuration: (");
+    print_i32(x_threads);
+    print_string(", ");
+    print_i32(y_threads);
+    print_string(") block size (");
+    print_i32(block_x_threads);
+    print_string(", ");
+    print_i32(block_y_threads);
+    print_string(")\n");
+
+    for work_item in nvvm.exec((x_threads, y_threads,  1), (block_x_threads, block_y_threads, 1)) {
+        let warp_x = work_item.gidx() / warp_size * warp_x_chunks * chunk_size_x;
+        let warp_y = work_item.gidy() * warp_y_chunks * chunk_size_y;
+
+        //TODO: this depends on the current layout!
+        let mut acc_fragments : [[(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4] * 2];
+
+        /* Load C fragments into registers */
+        for chunk_x in range(0, warp_x_chunks) {
+            for chunk_y in range(0, warp_y_chunks) {
+                let local_x = chunk_x * chunk_size_x;
+                let local_y = chunk_y * chunk_size_y;
+
+                let global_x = warp_x + local_x;
+                let global_y = warp_y + local_y;
+
+                let c_fragment_tensor = sub_tensor(c, global_x, global_y, chunk_size_x, chunk_size_y);
+                let c_fragment = nvvm_load_c_expand(c_fragment_tensor);
+
+                acc_fragments(chunk_x)(chunk_y) = c_fragment;
+            }
+        }
+
+        for global_k in range_step(0, k, chunk_size_k) {
+            for chunk_x in range(0, warp_x_chunks) {
+                let local_x = chunk_x * chunk_size_x;
+                let global_x = warp_x + local_x;
+
+                let b_fragment_tensor = sub_tensor(b, global_x, global_k, chunk_size_x, chunk_size_k);
+                let b_fragment = nvvm_load_b_expand(b_fragment_tensor);
+
+                for chunk_y in range(0, warp_y_chunks) {
+                    let local_y = chunk_y * chunk_size_y;
+                    let global_y = warp_y + local_y;
+
+                    let acc_fragment = acc_fragments(chunk_x)(chunk_y);
+
+                    let a_fragment_tensor = sub_tensor(a, global_k, global_y, chunk_size_k, chunk_size_y);
+                    let a_fragment = nvvm_load_a_expand(a_fragment_tensor);
+
+                    let result_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
+
+                    acc_fragments(chunk_x)(chunk_y) = result_fragment;
+                }
+            }
+        }
+
+        for chunk_x in range(0, warp_x_chunks) {
+            for chunk_y in range(0, warp_y_chunks) {
+                let local_x = chunk_x * chunk_size_x;
+                let local_y = chunk_y * chunk_size_y;
+
+                let global_x = warp_x + local_x;
+                let global_y = warp_y + local_y;
+
+                let result_fragment = acc_fragments(chunk_x)(chunk_y);
+
+                let d_fragment_tensor = sub_tensor(d, global_x, global_y, chunk_size_x, chunk_size_y);
+
+                nvvm_store_d_expand (d_fragment_tensor, result_fragment)
+            }
+        }
+    }
+}
+
+
 fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
@@ -307,16 +417,32 @@ fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor,
     let block_factor_x = select(n % (chunk_size_x * 2) != 0, 1, select(n % (chunk_size_x * 4) != 0, 2, 4));
     let block_factor_y = select(m % (chunk_size_y * 2) != 0, 1, select(m % (chunk_size_y * 4) != 0, 2, 4));
 
-    for work_item in nvvm.exec((n * warp_size / chunk_size_x, m / chunk_size_y,  1), (warp_size * block_factor_x, block_factor_y, 1)) {
+    let x_threads = n * warp_size / chunk_size_x;
+    let y_threads = m / chunk_size_y;
+
+    let block_x_threads = warp_size * block_factor_x;
+    let block_y_threads = block_factor_y;
+
+    print_string("simple configuration: (");
+    print_i32(x_threads);
+    print_string(", ");
+    print_i32(y_threads);
+    print_string(") block size (");
+    print_i32(block_x_threads);
+    print_string(", ");
+    print_i32(block_y_threads);
+    print_string(")\n");
+
+    for work_item in nvvm.exec((x_threads, y_threads,  1), (block_x_threads, block_y_threads, 1)) {
         let chunk_x = work_item.gidx() / warp_size * chunk_size_x;
         let chunk_y = work_item.gidy() * chunk_size_y;
 
         let c_fragment_tensor = sub_tensor(c, chunk_x, chunk_y, chunk_size_x, chunk_size_y);
         let mut acc_fragment = nvvm_load_c_expand(c_fragment_tensor);
 
-        for i in range_step(0, k, chunk_size_k) {
-            let a_fragment_tensor = sub_tensor(a, i, chunk_y, chunk_size_k, chunk_size_y);
-            let b_fragment_tensor = sub_tensor(b, chunk_x, i, chunk_size_x, chunk_size_k);
+        for global_k in range_step(0, k, chunk_size_k) {
+            let a_fragment_tensor = sub_tensor(a, global_k, chunk_y, chunk_size_k, chunk_size_y);
+            let b_fragment_tensor = sub_tensor(b, chunk_x, global_k, chunk_size_x, chunk_size_k);
 
             let a_fragment = nvvm_load_a_expand(a_fragment_tensor);
             let b_fragment = nvvm_load_b_expand(b_fragment_tensor);

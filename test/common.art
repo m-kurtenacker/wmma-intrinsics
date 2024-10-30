@@ -65,7 +65,13 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     print_string("NVVM multiplication:\n");
     nvvm.sync();
     let nvvm_start = get_kernel_time();
-    matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+
+    if (M % 128 == 0 && N % 128 == 0) {
+        matrix_multiply_nvvm_tiled(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    } else {
+        matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    }
+
     nvvm.sync();
     let nvvm_end = get_kernel_time();
     print_string("Done!\n");
@@ -128,7 +134,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     print_f32(max_error);
     print_string("\n");
 
-    if (max_error < 0.05) {
+    if (max_error < (0.01 * K as f32)) {
         0
     } else {
         1

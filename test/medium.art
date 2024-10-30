@@ -19,10 +19,10 @@
  *       (V      )
  */
 
-static N = 32;
-static M = 32;
-static K = 32;
+static N = 256;
+static M = 256;
+static K = 256;
 
 static alayout = AddrMode::RowMayor;
-static blayout = AddrMode::RowMayor;
+static blayout = AddrMode::ColMayor;
 static clayout = AddrMode::RowMayor;
