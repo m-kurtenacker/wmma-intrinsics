@@ -36,3 +36,10 @@ foreach(_case ${GENERATED_TESTS})
     message(STATUS "Generated test ${TESTNAME}")
     add_wmma_test(NAME ${TESTNAME} FILES common.art ${_case})
 endforeach()
+
+
+find_package (MKL CONFIG REQUIRED)
+
+add_wmma_test(NAME oneapi FILES oneapi.art)
+
+target_link_libraries(oneapi $<LINK_ONLY:MKL::MKL>)

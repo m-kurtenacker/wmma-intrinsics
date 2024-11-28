@@ -1,0 +1,47 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+/*
+layout:
+RowMayor => 101,
+ColMayor => 102,
+
+transpose:
+no_transpose => 111
+transpose => 112
+conj_transpose => 113
+*/
+
+#[import(cc="C", name="cblas_sgemm")]
+fn cblas_sgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f32, _a : &mut [f32], _stride_a : i64, _b : &mut [f32], _stride_b : i64, _beta : f32, _c : &mut [f32], _stride_c : i64) -> ();
+
+#[import(cc="C", name="MKL_malloc")]
+fn mkl_malloc (_size: i64, _align: i32) -> &mut [i8];
+
+
+fn matrix_multiply_oneapi (a : Tensor_f32, b : Tensor_f32, c : Tensor_f32) -> () {
+    let m = a.y_dim as i64;
+    let n = b.x_dim as i64;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim as i64;
+
+    cblas_sgemm(101, 111, 111, m, n, k, 1.0 : f32, bitcast[&mut [f32]](a.data), 256, bitcast[&mut [f32]](b.data), 256, 1.0 : f32, bitcast[&mut [f32]](c.data), 256)
+}
