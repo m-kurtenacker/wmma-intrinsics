@@ -19,6 +19,14 @@ struct Tensor_f32 {
     stride : i32 //row to row offset for this matrix.
 }
 
+struct Tensor_f64 {
+    data : &mut [f64],
+    x_dim : i32,
+    y_dim : i32,
+    addr_mode : AddrMode,
+    stride : i32 //row to row offset for this matrix.
+}
+
 fn @addr_tensor (x : i32, y : i32, t : Tensor) = match t.addr_mode {
     AddrMode::RowMayor => x + y * t.stride,
     AddrMode::ColMayor => x * t.stride + y

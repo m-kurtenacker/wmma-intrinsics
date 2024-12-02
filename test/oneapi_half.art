@@ -1,0 +1,140 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+static N = 256;
+static M = 256;
+static K = 256;
+
+static alayout = AddrMode::RowMayor; //Must be equal for oneapi hgemm
+static blayout = AddrMode::RowMayor;
+static clayout = AddrMode::RowMayor;
+
+static debug_prints = false;
+
+#[export]
+fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
+    //let nvvm = nvvm_accelerator(0);
+
+    let astride = match alayout { AddrMode::RowMayor => K, AddrMode::ColMayor => M };
+    let bstride = match blayout { AddrMode::RowMayor => N, AddrMode::ColMayor => K };
+    let cstride = match clayout { AddrMode::RowMayor => N, AddrMode::ColMayor => M };
+
+    // Produce data set on host
+    let a_cpu_buffer = alloc_cpu(sizeof[f16]() * (K * M) as i64);
+    let b_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * K) as i64);
+    let c_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
+    let d_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
+    let r_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
+
+    let a_cpu = bitcast[&mut [f16]](a_cpu_buffer.data);
+    let b_cpu = bitcast[&mut [f16]](b_cpu_buffer.data);
+    let c_cpu = bitcast[&mut [f16]](c_cpu_buffer.data);
+    let d_cpu = bitcast[&mut [f16]](d_cpu_buffer.data);
+    let r_cpu = bitcast[&mut [f16]](r_cpu_buffer.data);
+
+    let a_mkl = bitcast[&mut [f16]](mkl_malloc(sizeof[f64]() * (K * M) as i64, 64));
+    let b_mkl = bitcast[&mut [f16]](mkl_malloc(sizeof[f64]() * (N * K) as i64, 64));
+    let c_mkl = bitcast[&mut [f16]](mkl_malloc(sizeof[f64]() * (N * M) as i64, 64));
+
+    for n in range(0, M * K) { a_cpu(n) = random_val_f32() as f16; }
+    for n in range(0, N * K) { b_cpu(n) = random_val_f32() as f16; }
+    for n in range(0, N * M) { c_cpu(n) = random_val_f32() as f16; d_cpu(n) = 0; r_cpu(n) = 0; }
+
+    let a_tensor = Tensor { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_tensor = Tensor { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_tensor = Tensor { data = c_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let d_tensor = Tensor { data = d_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let r_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+
+    let a_mkl_tensor = Tensor { data = a_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_mkl_tensor = Tensor { data = b_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let c_mkl_tensor = Tensor { data = c_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+
+    
+    // OneAPI implementation
+    for n in range(0, M * K) { a_mkl(n) = a_cpu(n); }
+    for n in range(0, N * K) { b_mkl(n) = b_cpu(n); }
+    for n in range(0, N * M) { c_mkl(n) = c_cpu(n); }
+
+    print_string("OneAPI multiplication:\n");
+    let oneapi_start = get_micro_time();
+    matrix_multiply_oneapi_half(a_mkl_tensor, b_mkl_tensor, c_mkl_tensor);
+    let oneapi_end = get_micro_time();
+    print_string("Done!\n");
+    if (oneapi_end - oneapi_start > 0) {
+        print_string("Took ");
+        print_i64(oneapi_end - oneapi_start);
+        print_string("µs\n");
+    }
+
+    for n in range(0, N * M) { d_cpu(n) = c_mkl(n); }
+
+    
+    // Ref implementation
+    print_string("CPU multiplication:\n");
+    let cpu_start = get_micro_time();
+    matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
+    let cpu_end = get_micro_time();
+    print_string("Done!\n");
+    if (cpu_end - cpu_start > 0) {
+        print_string("Took ");
+        print_i64(cpu_end - cpu_start);
+        print_string("µs\n");
+    }
+
+    
+    // Compare results
+    if (debug_prints) {
+        print_string("NVVM result:\n");
+        print_matrix(d_tensor);
+        print_string("\n");
+        print_string("CPU result:\n");
+        print_matrix(r_tensor);
+        print_string("\n");
+    }
+
+    for x in range(0, d_tensor.x_dim) {
+        for y in range(0, d_tensor.y_dim) {
+            r_tensor.data(addr_tensor(x, y, r_tensor)) = r_tensor.data(addr_tensor(x, y, r_tensor)) - d_tensor.data(addr_tensor(x, y, d_tensor));
+        }
+    }
+
+    if (debug_prints) {
+        print_string("Difference:\n");
+        print_matrix(r_tensor);
+        print_string("\n");
+    }
+
+    let mut max_error = 0 as f32;
+    for x in range(0, N * M) {
+        max_error = cpu_intrinsics.fmaxf(max_error, cpu_intrinsics.fabsf(r_cpu(x) as f32));
+    }
+
+    print_string("Max error: ");
+    print_f32(max_error);
+    print_string("\n");
+
+    if (max_error < (0.01 * K as f32)) {
+        0
+    } else {
+        1
+    }
+}
