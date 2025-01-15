@@ -492,3 +492,28 @@ fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor,
         nvvm_wmma_store_d_expand (d_fragment_tensor, acc_fragment)
     }
 }
+
+fn matrix_multiply_nvvm_simple (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    print_string("nvvm ref implementation\n");
+
+    for work_item in nvvm.exec((n, m,  1), (32, 16, 1)) {
+        let x = work_item.gidx();
+        let y = work_item.gidy();
+
+        let mut rv = c.data(addr_tensor(x, y, c)) as f32;
+
+        for i in range(0, k) {
+            let av = a.data(addr_tensor(i, y, a)) as f32;
+            let bv = b.data(addr_tensor(x, i, b)) as f32;
+
+            rv += av * bv;
+        }
+
+        d.data(addr_tensor(x, y, d)) = rv as f16;
+    }
+}

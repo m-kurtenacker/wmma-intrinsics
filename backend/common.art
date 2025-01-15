@@ -32,6 +32,11 @@ fn @addr_tensor (x : i32, y : i32, t : Tensor) = match t.addr_mode {
     AddrMode::ColMayor => x * t.stride + y
 };
 
+fn @addr_tensor_f32 (x : i32, y : i32, t : Tensor_f32) = match t.addr_mode {
+    AddrMode::RowMayor => x + y * t.stride,
+    AddrMode::ColMayor => x * t.stride + y
+};
+
 fn @sub_tensor(t : Tensor, x0 : i32, y0 : i32, xs : i32, ys : i32) =
     Tensor {data = bitcast [&mut [f16]](&t.data(addr_tensor(x0, y0, t))),
              x_dim = xs,
