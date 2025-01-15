@@ -1,0 +1,68 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+
+fn convert_tensor (src : Tensor) -> Tensor_f32 {
+    let dst_cpu = bitcast[&mut[f32]](alloc_cpu(sizeof[f32]() * src.x_dim as i64 * src.y_dim as i64).data);
+
+    let dst = Tensor_f32 { data = dst_cpu, x_dim = src.x_dim, y_dim = src.y_dim, addr_mode = src.addr_mode, stride = src.stride };
+
+    for x in range(0, src.x_dim) {
+        for y in range(0, src.y_dim) {
+            dst.data(addr_tensor_f32(x, y, dst)) = src.data(addr_tensor(x, y, src)) as f32;
+        }
+    }
+
+    dst
+}
+
+fn back_convert_tensor (src : Tensor_f32) -> Tensor {
+    let dst_cpu = bitcast[&mut[f16]](alloc_cpu(sizeof[f16]() * src.x_dim as i64 * src.y_dim as i64).data);
+
+    let dst = Tensor { data = dst_cpu, x_dim = src.x_dim, y_dim = src.y_dim, addr_mode = src.addr_mode, stride = src.stride };
+
+    for x in range(0, src.x_dim) {
+        for y in range(0, src.y_dim) {
+            dst.data(addr_tensor(x, y, dst)) = src.data(addr_tensor_f32(x, y, src)) as f16;
+        }
+    }
+
+    dst
+}
+
+fn matrix_multiply_blas (a : Tensor, b : Tensor, c : Tensor) -> () {
+    let m = a.y_dim as i64;
+    let n = b.x_dim as i64;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim as i64;
+
+    let a_f32 = convert_tensor(a);
+    let b_f32 = convert_tensor(b);
+    let c_f32 = convert_tensor(c);
+
+    cblas_gemm[f32](CBLAS_LAYOUT::CblasRowMajor, CBLAS_TRANSPOSE::CblasNoTrans, CBLAS_TRANSPOSE::CblasTrans, m, n, k, 1.0, bitcast[&mut [f32]](a_f32.data), a_f32.stride as i64, bitcast[&mut [f32]](b_f32.data), b_f32.stride as i64, 1.0, bitcast[&mut [f32]](c_f32.data), c_f32.stride as i64);
+
+    for x in range(0, c_f32.x_dim) {
+        for y in range(0, c_f32.y_dim) {
+            c.data(addr_tensor(x, y, c)) = c_f32.data(addr_tensor_f32(x, y, c_f32)) as f16;
+        }
+    }
+}
