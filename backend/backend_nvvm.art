@@ -517,3 +517,183 @@ fn matrix_multiply_nvvm_simple (nvvm : Accelerator, a : Tensor, b : Tensor, c : 
         d.data(addr_tensor(x, y, d)) = rv as f16;
     }
 }
+
+fn matrix_multiply_nvvm_simple_shared (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    print_string("nvvm ref implementation\n");
+
+    for work_item in nvvm.exec((n, m,  1), (32, 32, 1)) {
+        //let mut rv = c.data(addr_tensor(work_item.gidx(), work_item.gidy(), c)) as f32;
+        let mut rv = 0 as f32;
+
+        for batch in range_step(0, k, 32) {
+            let As_data = bitcast[&mut [f32]](reserve_shared[f32](32 * 32));
+            let Bs_data = bitcast[&mut [f32]](reserve_shared[f32](32 * 32));
+
+            let A_shared = Tensor_f32 { data = As_data, x_dim = 32, y_dim = 32, addr_mode = AddrMode::RowMayor, stride = 32 };
+            let B_shared = Tensor_f32 { data = Bs_data, x_dim = 32, y_dim = 32, addr_mode = AddrMode::RowMayor, stride = 32 };
+
+            let a_local = a.data(addr_tensor(batch + work_item.tidx(), work_item.gidy(), a));
+            A_shared.data(addr_tensor_f32(work_item.tidx(), work_item.tidy(), A_shared)) = a_local as f32;
+
+            let b_local = b.data(addr_tensor(work_item.gidx(), batch + work_item.tidy(), b));
+            B_shared.data(addr_tensor_f32(work_item.tidx(), work_item.tidy(), B_shared)) = b_local as f32;
+
+            nvvm.barrier();
+
+            for index in unroll(0, 32) {
+                let av = A_shared.data(addr_tensor_f32(index, work_item.tidy(), A_shared));
+                let bv = B_shared.data(addr_tensor_f32(work_item.tidx(), index, B_shared));
+
+                rv += av * bv;
+            }
+
+            nvvm.barrier();
+        }
+
+        d.data(addr_tensor(work_item.gidx(), work_item.gidy(), d)) = rv as f16;
+    }
+}
+
+fn matrix_multiply_nvvm_simple_shared_f32 (nvvm : Accelerator, a : Tensor_f32, b : Tensor_f32, c : Tensor_f32, d : Tensor_f32) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    print_string("nvvm ref implementation\n");
+
+    for work_item in nvvm.exec((n, m,  1), (32, 32, 1)) {
+        let mut rv = c.data(addr_tensor_f32(work_item.gidx(), work_item.gidy(), c));
+        //let mut rv = 0 : f32;
+
+        for batch in range_step(0, k, 32) {
+            let As_data = bitcast[&mut [f32]](reserve_shared[f32](32 * 32));
+            let Bs_data = bitcast[&mut [f32]](reserve_shared[f32](32 * 32));
+
+            let A_shared = Tensor_f32 { data = As_data, x_dim = 32, y_dim = 32, addr_mode = AddrMode::RowMayor, stride = 32 };
+            let B_shared = Tensor_f32 { data = Bs_data, x_dim = 32, y_dim = 32, addr_mode = AddrMode::RowMayor, stride = 32 };
+
+            let a_local = a.data(addr_tensor_f32(batch + work_item.tidx(), work_item.gidy(), a));
+            A_shared.data(addr_tensor_f32(work_item.tidx(), work_item.tidy(), A_shared)) = a_local;
+
+            let b_local = b.data(addr_tensor_f32(work_item.gidx(), batch + work_item.tidy(), b));
+            B_shared.data(addr_tensor_f32(work_item.tidx(), work_item.tidy(), B_shared)) = b_local;
+
+            nvvm.barrier();
+
+            for index in unroll(0, 32) {
+                let av = A_shared.data(addr_tensor_f32(index, work_item.tidy(), A_shared));
+                let bv = B_shared.data(addr_tensor_f32(work_item.tidx(), index, B_shared));
+
+                rv += av * bv;
+            }
+
+            nvvm.barrier();
+        }
+
+        d.data(addr_tensor_f32(work_item.gidx(), work_item.gidy(), d)) = rv;
+    }
+}
+
+fn matrix_multiply_nvvm_copy (nvvm : Accelerator, at : Tensor_f32, bt : Tensor_f32, ct : Tensor_f32, dt : Tensor_f32) -> () {
+    let m = at.y_dim;
+    let n = bt.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = at.x_dim;
+
+    print_string("nvvm ref implementation\n");
+
+    let wA = 4096;
+    let wB = 4096;
+
+    let BLOCK_SIZE = 32;
+
+    for work_item in nvvm.exec((n, m,  1), (32, 32, 1)) {
+
+  // Block index
+  let bx = work_item.bidx();
+  let by = work_item.bidy();
+
+  // Thread index
+  let tx = work_item.tidx();
+  let ty = work_item.tidy();
+
+  // Index of the first sub-matrix of A processed by the block
+  let aBegin = wA * BLOCK_SIZE * by;
+
+  // Index of the last sub-matrix of A processed by the block
+  let aEnd   = aBegin + wA - 1;
+
+  // Step size used to iterate through the sub-matrices of A
+  let aStep  = BLOCK_SIZE;
+
+  // Index of the first sub-matrix of B processed by the block
+  let bBegin = BLOCK_SIZE * bx;
+
+  // Step size used to iterate through the sub-matrices of B
+  let bStep  = BLOCK_SIZE * wB;
+
+  // Csub is used to store the element of the block sub-matrix
+  // that is computed by the thread
+  let c = wB * BLOCK_SIZE * by + BLOCK_SIZE * bx;
+  let mut Csub = ct.data(c + wB * ty + tx);
+
+
+  //for (int a = aBegin, b = bBegin;
+  //     a <= aEnd;
+  //     a += aStep, b += bStep) {
+  let mut b = bBegin;
+  for a in range_step(aBegin, aEnd, aStep) {
+    // Declaration of the shared memory array As used to
+    // store the sub-matrix of A
+    //__shared__ float As[BLOCK_SIZE][BLOCK_SIZE];
+            let As_data = bitcast[&mut [f32]](reserve_shared[f32](BLOCK_SIZE * BLOCK_SIZE));
+            let A_shared = Tensor_f32 { data = As_data, x_dim = 32, y_dim = 32, addr_mode = AddrMode::RowMayor, stride = 32 };
+
+    // Declaration of the shared memory array Bs used to
+    // store the sub-matrix of B
+    //__shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];
+            let Bs_data = bitcast[&mut [f32]](reserve_shared[f32](BLOCK_SIZE * BLOCK_SIZE));
+            let B_shared = Tensor_f32 { data = Bs_data, x_dim = 32, y_dim = 32, addr_mode = AddrMode::RowMayor, stride = 32 };
+
+    // Load the matrices from device memory
+    // to shared memory; each thread loads
+    // one element of each matrix
+    //As[ty][tx] = A[a + wA * ty + tx];
+            A_shared.data(addr_tensor_f32(tx, ty, A_shared)) = at.data(a + wA * ty + tx);
+    //Bs[ty][tx] = B[b + wB * ty + tx];
+            B_shared.data(addr_tensor_f32(tx, ty, B_shared)) = bt.data(b + wB * ty + tx);
+
+    // Synchronize to make sure the matrices are loaded
+            nvvm.barrier();
+
+    // Multiply the two matrices together;
+    // each thread computes one element
+    // of the block sub-matrix
+//#pragma unroll
+    //for (int k = 0; k < BLOCK_SIZE; ++k) {
+    for k in unroll(0, BLOCK_SIZE) {
+            let a_data = A_shared.data(addr_tensor_f32(k, ty, A_shared));
+            let b_data = B_shared.data(addr_tensor_f32(tx, k, B_shared));
+
+            Csub += a_data * b_data;
+    }
+
+    // Synchronize to make sure that the preceding
+    // computation is done before loading two new
+    // sub-matrices of A and B in the next iteration
+            nvvm.barrier();
+
+    b += bStep;
+  }
+
+
+  dt.data(c + wB * ty + tx) = Csub;
+
+    }
+}

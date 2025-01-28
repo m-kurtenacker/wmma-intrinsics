@@ -35,36 +35,54 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let c_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
     let d_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
 
+    let a_cpu_f32_buffer = alloc_cpu(sizeof[f32]() * (K * M) as i64);
+    let b_cpu_f32_buffer = alloc_cpu(sizeof[f32]() * (N * K) as i64);
+    let c_cpu_f32_buffer = alloc_cpu(sizeof[f32]() * (N * M) as i64);
+    let d_cpu_f32_buffer = alloc_cpu(sizeof[f32]() * (N * M) as i64);
+
     let a_cpu = bitcast[&mut [f16]](a_cpu_buffer.data);
     let b_cpu = bitcast[&mut [f16]](b_cpu_buffer.data);
     let c_cpu = bitcast[&mut [f16]](c_cpu_buffer.data);
     let d_cpu = bitcast[&mut [f16]](d_cpu_buffer.data);
 
+    let a_f32_cpu = bitcast[&mut [f32]](a_cpu_f32_buffer.data);
+    let b_f32_cpu = bitcast[&mut [f32]](b_cpu_f32_buffer.data);
+    let c_f32_cpu = bitcast[&mut [f32]](c_cpu_f32_buffer.data);
+    let d_f32_cpu = bitcast[&mut [f32]](d_cpu_f32_buffer.data);
+
     for n in range(0, M * K) { a_cpu(n) = random_val_f32() as f16; }
     for n in range(0, N * K) { b_cpu(n) = random_val_f32() as f16; }
-    for n in range(0, N * M) { c_cpu(n) = random_val_f32() as f16; d_cpu(n) = 0 as f16; }
+    for n in range(0, N * M) { c_cpu(n) = 0 as f16; d_cpu(n) = 0 as f16; }
+
+    for n in range(0, M * K) { a_f32_cpu(n) = a_cpu(n) as f32; }
+    for n in range(0, N * K) { b_f32_cpu(n) = b_cpu(n) as f32; }
+    for n in range(0, N * M) { c_f32_cpu(n) = 0 as f32; d_f32_cpu(n) = 0 as f32; }
 
     // Copy data to device
-    let a_cuda_buffer = nvvm.alloc(sizeof[f16]() * (K * M) as i64);
-    let b_cuda_buffer = nvvm.alloc(sizeof[f16]() * (N * K) as i64);
-    let c_cuda_buffer = nvvm.alloc(sizeof[f16]() * (N * M) as i64);
-    let d_cuda_buffer = nvvm.alloc(sizeof[f16]() * (N * M) as i64);
+    let a_cuda_buffer = nvvm.alloc(sizeof[f32]() * (K * M) as i64);
+    let b_cuda_buffer = nvvm.alloc(sizeof[f32]() * (N * K) as i64);
+    let c_cuda_buffer = nvvm.alloc(sizeof[f32]() * (N * M) as i64);
+    let d_cuda_buffer = nvvm.alloc(sizeof[f32]() * (N * M) as i64);
 
-    copy(a_cpu_buffer, a_cuda_buffer);
-    copy(b_cpu_buffer, b_cuda_buffer);
-    copy(c_cpu_buffer, c_cuda_buffer);
+    copy(a_cpu_f32_buffer, a_cuda_buffer);
+    copy(b_cpu_f32_buffer, b_cuda_buffer);
+    copy(c_cpu_f32_buffer, c_cuda_buffer);
 
-    let a_global_tensor = Tensor { data = bitcast[&mut[f16]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
-    let b_global_tensor = Tensor { data = bitcast[&mut[f16]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
-    let c_global_tensor = Tensor { data = bitcast[&mut[f16]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
-    let d_global_tensor = Tensor { data = bitcast[&mut[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let a_global_tensor = Tensor_f32 { data = bitcast[&mut[f32]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_global_tensor = Tensor_f32 { data = bitcast[&mut[f32]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_global_tensor = Tensor_f32 { data = bitcast[&mut[f32]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let d_global_tensor = Tensor_f32 { data = bitcast[&mut[f32]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
     // NVVM multiply tensors
     print_string("NVVM multiplication:\n");
     nvvm.sync();
     let nvvm_start = get_kernel_time();
 
-    matrix_multiply_nvvm_simple(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    for _ in range(0, 30) {
+        matrix_multiply_nvvm_simple_shared_f32(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+        //matrix_multiply_nvvm_copy(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+        nvvm.sync();
+    }
 
     nvvm.sync();
     let nvvm_end = get_kernel_time();
@@ -76,7 +94,8 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     }
 
     // Fetch result
-    copy(d_cuda_buffer, d_cpu_buffer);
+    copy(d_cuda_buffer, d_cpu_f32_buffer);
+    for n in range(0, N * M) { d_cpu(n) = d_f32_cpu(n) as f16; }
 
     let a_tensor = Tensor { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
     let b_tensor = Tensor { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };

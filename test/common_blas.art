@@ -64,10 +64,13 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     nvvm.sync();
     let nvvm_start = get_kernel_time();
 
-    if (M % 128 == 0 && N % 128 == 0) {
-        matrix_multiply_nvvm_tiled(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
-    } else {
-        matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    for _ in range(0, 30) {
+        if (M % 128 == 0 && N % 128 == 0) {
+            matrix_multiply_nvvm_tiled(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+        } else {
+            matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+        }
+        nvvm.sync();
     }
 
     nvvm.sync();

@@ -24,8 +24,7 @@ endfunction()
 
 add_wmma_test(NAME simple FILES common.art simple.art)
 add_wmma_test(NAME layout FILES common.art layout.art)
-add_wmma_test(NAME medium FILES common.art medium.art )
-add_wmma_test(NAME large  FILES common.art large.art )
+add_wmma_test(NAME medium FILES common.art medium.art)
 
 file(GLOB GENERATED_TESTS generated/*.art)
 if(NOT GENERATED_TESTS)
@@ -48,3 +47,9 @@ add_wmma_test(NAME oneapi_double FILES oneapi_double.art)
 target_link_libraries(oneapi ${BLAS_LIBRARIES})
 target_link_libraries(oneapi_half ${BLAS_LIBRARIES})
 target_link_libraries(oneapi_double ${BLAS_LIBRARIES})
+
+add_wmma_test(NAME large  FILES common_blas.art large.art)
+target_link_libraries(large ${BLAS_LIBRARIES})
+
+add_wmma_test(NAME large_ref  FILES nvvm_ref_blas.art large.art)
+target_link_libraries(large_ref ${BLAS_LIBRARIES})
