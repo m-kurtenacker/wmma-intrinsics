@@ -527,8 +527,8 @@ fn matrix_multiply_nvvm_simple_shared (nvvm : Accelerator, a : Tensor, b : Tenso
     print_string("nvvm ref implementation\n");
 
     for work_item in nvvm.exec((n, m,  1), (32, 32, 1)) {
-        //let mut rv = c.data(addr_tensor(work_item.gidx(), work_item.gidy(), c)) as f32;
-        let mut rv = 0 as f32;
+        let mut rv = c.data(addr_tensor(work_item.gidx(), work_item.gidy(), c)) as f32;
+        //let mut rv = 0 as f32;
 
         for batch in range_step(0, k, 32) {
             let As_data = bitcast[&mut [f32]](reserve_shared[f32](32 * 32));
