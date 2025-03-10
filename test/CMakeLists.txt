@@ -51,5 +51,8 @@ target_link_libraries(oneapi_double ${BLAS_LIBRARIES})
 add_wmma_test(NAME large  FILES common_blas.art large.art)
 target_link_libraries(large ${BLAS_LIBRARIES})
 
+add_wmma_test(NAME large_blocked  FILES common_blocked.art large.art)
+target_link_libraries(large_blocked ${BLAS_LIBRARIES})
+
 add_wmma_test(NAME large_ref  FILES nvvm_ref_blas.art large.art)
 target_link_libraries(large_ref ${BLAS_LIBRARIES})
