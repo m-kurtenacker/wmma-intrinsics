@@ -315,8 +315,9 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
     print_string(")\n");
 
     let k_shared_tiles = 4;
-    let shared_memory_size = tile_size_k * k_shared_tiles * block_size_y * 2; //TODO: add skew_half in an appropriate place
-                                                                              //TODO: *2 is not correct, calculate second part based on block_size_x
+    let skew_half = 16;
+    let shared_memory_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_y * 2;
+    //TODO: *2 is not correct, calculate second part based on block_size_x
 
     for work_item in nvvm.exec((parallel_blocks * threads_per_block, 1, 1), (threads_per_block, 1, 1)) {
         let shared_memory = bitcast[&mut [f16]](reserve_shared[f16](shared_memory_size));
@@ -326,14 +327,15 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
             x_dim = tile_size_k * k_shared_tiles,
             y_dim = block_size_y,
             addr_mode = AddrMode::RowMayor,
-            stride = tile_size_k * k_shared_tiles
+            stride = tile_size_k * k_shared_tiles + skew_half
         };
         let b_shared_tensor = Tensor {
-            data = bitcast[&mut[f16]](&shared_memory(tile_size_k * k_shared_tiles * block_size_y)), //TODO: calculate this offset elsewhere
+            data = bitcast[&mut[f16]](&shared_memory((tile_size_k * k_shared_tiles + skew_half) * block_size_y)), //TODO: calculate this offset elsewhere
             x_dim = block_size_x,
             y_dim = tile_size_k * k_shared_tiles,
-            addr_mode = AddrMode::RowMayor,
-            stride = block_size_x
+            addr_mode = AddrMode::ColMayor,
+            //stride = block_size_x + skew_half
+            stride = tile_size_k * k_shared_tiles + skew_half
         };
 
         let warp_id = work_item.tidx() / warp_size;
@@ -350,8 +352,8 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
             let mut acc_fragments : [[(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
 
             /* Load C fragments into registers */
-            for tile_x in range(0, warp_x_tiles) {
-                for tile_y in range(0, warp_y_tiles) {
+            for tile_x in unroll(0, warp_x_tiles) {
+                for tile_y in unroll(0, warp_y_tiles) {
                     let local_x = tile_x * tile_size_x;
                     let local_y = tile_y * tile_size_y;
 
@@ -365,35 +367,40 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
                 }
             }
 
-            for global_k_sliced in range_step(0, k, tile_size_k * k_shared_tiles) {
+            for global_k_sliced in range_step(0, k, tile_size_k * k_shared_tiles) { //TODO: That's l.295 in the sample, and should be unrolled!
                 //Populate shared tensors
+                let rows_per_warp = warp_size / (k_shared_tiles * 2);
+                let lanes_per_row = tile_size_k / 8 * k_shared_tiles;
                 if (warp_id < 4) { //tid 0 - 127
-                    for local_k in range(0, k_shared_tiles * tile_size_k) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
-                        let local_y = work_item.tidx();
+                    for y_index in unroll_step(0, 128, rows_per_warp * 4) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
+                        let local_y = y_index + warp_id * rows_per_warp + (lane_id / lanes_per_row);
+                        let local_k = (lane_id % lanes_per_row) * 8;
 
-                        let global_k = global_k_sliced + local_k;
                         let global_y = block_y + local_y;
+                        let global_k = global_k_sliced + local_k;
 
-                        let data = a.data(addr_tensor(global_k, global_y, a));
-                        a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)) = data;
+                        let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
+                        let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
+                        *target_ptr = *src_ptr;
                     }
                 } else { //tid 128 - 255
-                    for local_k in range(0, k_shared_tiles * tile_size_k) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
-                        let local_x = work_item.tidx() - 128;
+                    for x_index in unroll_step(0, 128, rows_per_warp * 4) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
+                        let local_x = x_index + (warp_id % 4) * rows_per_warp + (lane_id / lanes_per_row);
+                        let local_k = (lane_id % lanes_per_row) * 8;
 
-                        let global_k = global_k_sliced + local_k;
                         let global_x = block_x + local_x;
+                        let global_k = global_k_sliced + local_k;
 
-                        let data = b.data(addr_tensor(global_x, global_k, b));
-                        b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)) = data;
+                        let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
+                        let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
+                        *target_ptr = *src_ptr;
                     }
                 }
 
                 nvvm.barrier();
 
-                for local_k_tile in range(0, k_shared_tiles) {
+                for local_k_tile in unroll(0, k_shared_tiles) {
                     let local_k = local_k_tile * tile_size_k;
-                    let global_k = global_k_sliced + local_k;
 
                     let mut a_fragments : [(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4 /* warp_y_tiles */];
 
@@ -415,13 +422,10 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
                             let acc_fragment = acc_fragments(tile_x)(tile_y);
 
                             let a_fragment_tensor = sub_tensor(a_shared_tensor, local_k, in_block_y, tile_size_k, tile_size_y);
-                            let a_fragment = if (tile_x == 0) {
-                                let a_fragment = nvvm_wmma_load_a_expand(a_fragment_tensor);
-                                a_fragments(tile_y) = a_fragment;
-                                a_fragment
-                            } else {
-                                a_fragments(tile_y)
-                            };
+                            if (tile_x == 0) {
+                                a_fragments(tile_y) = nvvm_wmma_load_a_expand(a_fragment_tensor);
+                            }
+                            let a_fragment = a_fragments(tile_y);
 
                             let result_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
 
@@ -433,8 +437,8 @@ fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c :
                 nvvm.barrier();
             }
 
-            for tile_x in range(0, warp_x_tiles) {
-                for tile_y in range(0, warp_y_tiles) {
+            for tile_x in unroll(0, warp_x_tiles) {
+                for tile_y in unroll(0, warp_y_tiles) {
                     let local_x = tile_x * tile_size_x;
                     let local_y = tile_y * tile_size_y;
 
