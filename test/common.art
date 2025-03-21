@@ -66,11 +66,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     nvvm.sync();
     let nvvm_start = get_kernel_time();
 
-    if (M % 128 == 0 && N % 128 == 0) {
-        matrix_multiply_nvvm_tiled(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
-    } else {
-        matrix_multiply_nvvm(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
-    }
+    accelerated_matmul(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
 
     nvvm.sync();
     let nvvm_end = get_kernel_time();
@@ -92,7 +88,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     // Ref implementation
     print_string("CPU multiplication:\n");
     let cpu_start = get_micro_time();
-    matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
+    ref_matmul(a_tensor, b_tensor, c_tensor, r_tensor);
     let cpu_end = get_micro_time();
     print_string("Done!\n");
     if (cpu_end - cpu_start > 0) {
