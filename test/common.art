@@ -23,7 +23,7 @@ static debug_prints = false;
 
 #[export]
 fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
-    let nvvm = nvvm_accelerator(0);
+    let acc = get_accelerator();
 
     let astride = match alayout { AddrMode::RowMayor => K, AddrMode::ColMayor => M };
     let bstride = match blayout { AddrMode::RowMayor => N, AddrMode::ColMayor => K };
@@ -47,10 +47,10 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     for n in range(0, N * M) { c_cpu(n) = random_val_f32() as f16; d_cpu(n) = 0 as f16; r_cpu(n) = 0 as f16; }
 
     // Copy data to device
-    let a_cuda_buffer = nvvm.alloc(sizeof[f16]() * (K * M) as i64);
-    let b_cuda_buffer = nvvm.alloc(sizeof[f16]() * (N * K) as i64);
-    let c_cuda_buffer = nvvm.alloc(sizeof[f16]() * (N * M) as i64);
-    let d_cuda_buffer = nvvm.alloc(sizeof[f16]() * (N * M) as i64);
+    let a_cuda_buffer = acc.alloc(sizeof[f16]() * (K * M) as i64);
+    let b_cuda_buffer = acc.alloc(sizeof[f16]() * (N * K) as i64);
+    let c_cuda_buffer = acc.alloc(sizeof[f16]() * (N * M) as i64);
+    let d_cuda_buffer = acc.alloc(sizeof[f16]() * (N * M) as i64);
 
     copy(a_cpu_buffer, a_cuda_buffer);
     copy(b_cpu_buffer, b_cuda_buffer);
@@ -63,17 +63,17 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
 
     // NVVM multiply tensors
     print_string("NVVM multiplication:\n");
-    nvvm.sync();
-    let nvvm_start = get_kernel_time();
+    acc.sync();
+    let acc_start = get_kernel_time();
 
-    accelerated_matmul(nvvm, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    accelerated_matmul(acc, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
 
-    nvvm.sync();
-    let nvvm_end = get_kernel_time();
+    acc.sync();
+    let acc_end = get_kernel_time();
     print_string("Done!\n");
-    if (nvvm_end - nvvm_start > 0) {
+    if (acc_end - acc_start > 0) {
         print_string("Took ");
-        print_i64(nvvm_end - nvvm_start);
+        print_i64(acc_end - acc_start);
         print_string("µs\n");
     }
 

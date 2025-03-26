@@ -51,4 +51,7 @@ target_link_libraries(large_ref ${BLAS_LIBRARIES})
 add_wmma_test(NAME medium_prgmod  FILES common.art operations/prgmod.art layouts/medium.art)
 target_link_libraries(medium_prgmod ${BLAS_LIBRARIES})
 
+add_wmma_test(NAME hsa_ref FILES common.art operations/hsa_ref.art layouts/medium.art)
+target_link_libraries(hsa_ref ${BLAS_LIBRARIES})
+
 add_subdirectory(oneapi)

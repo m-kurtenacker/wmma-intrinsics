@@ -1,9 +1,12 @@
 fn @get_accelerator () {
-    nvvm_accelerator(0)
+    amdgpu_hsa_accelerator(1)
 }
 
-fn @accelerated_matmul (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    matrix_multiply_nvvm(nvvm, a, b, c, d);
+fn @accelerated_matmul (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    /*for _ in range(0, 30) {
+        matrix_multiply_hsa_simple(hsa, a, b, c, d);
+    }*/
+    matrix_multiply_hsa_wmma(hsa, a, b, c, d);
 }
 
 fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {

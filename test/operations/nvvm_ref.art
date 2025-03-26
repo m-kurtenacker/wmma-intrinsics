@@ -1,3 +1,7 @@
+fn @get_accelerator () {
+    nvvm_accelerator(0)
+}
+
 fn @accelerated_matmul (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
     matrix_multiply_nvvm_simple(nvvm, a, b, c, d);
 }

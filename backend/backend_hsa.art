@@ -1,0 +1,134 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+//Tested with ROCm 6.3.3
+//TODO: This requires a patch in runtime:
+/* in hsa_platform.cpp:616
+-    std::string attrs = "-trap-handler";
++    std::string attrs = "-trap-handler,+wavefrontsize32,-wavefrontsize64";
+*/
+
+type amdgcn_acc_datatype = simd[f16 * 16];
+type amdgcn_mat_datatype = simd[f16 * 16];
+
+#[import(cc = "device", name = "llvm.amdgcn.wmma.f16.16x16x16.f16.v16f16.v16f16")] fn amdgcn_wmma(amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype, bool) -> amdgcn_acc_datatype;
+
+fn matrix_multiply_hsa_wmma (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    let tile_size_x = 16;
+    let tile_size_y = 16;
+    let tile_size_k = 16;
+
+    //We run blocks containing block_factor_x * block_factor_y many tiles.
+    //let block_factor_x = select(n % (tile_size_x * 2) != 0, 1, select(n % (tile_size_x * 4) != 0, 2, 4));
+    //let block_factor_y = select(m % (tile_size_y * 2) != 0, 1, select(m % (tile_size_y * 4) != 0, 2, 4));
+    let block_factor_x = 1;
+    let block_factor_y = 1;
+
+    let wave_size = 32; //?
+
+    let matrix_x_threads = n * wave_size / tile_size_x;
+    let matrix_y_threads = m / tile_size_y;
+
+    let block_x_threads = wave_size * block_factor_x;
+    let block_y_threads = block_factor_y;
+
+    print_string("hsa wmma implementation\n");
+    print_i32(block_x_threads);
+    print_string(", ");
+    print_i32(block_y_threads);
+    print_string("\n");
+    print_i32(matrix_x_threads);
+    print_string(", ");
+    print_i32(matrix_y_threads);
+    print_string("\n");
+
+    for work_item in hsa.exec((matrix_x_threads, matrix_y_threads,  1), (block_x_threads, block_y_threads, 1)) {
+        let tile_x = work_item.gidx() / wave_size * tile_size_x;
+        let tile_y = work_item.gidy() * tile_size_y;
+
+        let lane = work_item.tidx() % 16;
+
+        let c_fragment_tensor = sub_tensor(c, tile_x, tile_y, tile_size_x, tile_size_y);
+
+        let mut acc_fragment : amdgcn_acc_datatype;
+        for ele in range(0, 8) {
+            let r = ele * 2 + work_item.tidx() / 16;
+
+            acc_fragment(ele * 2) = c_fragment_tensor.data(addr_tensor(lane, r, c_fragment_tensor));
+        }
+
+
+        for global_k in range_step(0, k, tile_size_k) {
+            let a_fragment_tensor = sub_tensor(a, global_k, tile_y, tile_size_k, tile_size_y);
+            let b_fragment_tensor = sub_tensor(b, tile_x, global_k, tile_size_x, tile_size_k);
+
+            let mut a_fragment : amdgcn_mat_datatype;
+            for ele in range(0, 16) {
+                a_fragment(ele) = a_fragment_tensor.data(addr_tensor(ele, lane, a_fragment_tensor));
+            }
+
+            let mut b_fragment : amdgcn_mat_datatype;
+            for ele in range(0, 16) {
+                b_fragment(ele) = b_fragment_tensor.data(addr_tensor(lane, ele, b_fragment_tensor));
+            }
+
+            acc_fragment = amdgcn_wmma(a_fragment, b_fragment, acc_fragment, false);
+        }
+
+
+        let d_fragment_tensor = sub_tensor(d, tile_x, tile_y, tile_size_x, tile_size_y);
+        for ele in range(0, 8) {
+            let r = ele * 2 + work_item.tidx() / 16;
+
+            d_fragment_tensor.data(addr_tensor(lane, r, d_fragment_tensor)) = acc_fragment(ele * 2) 
+        }
+    }
+}
+
+fn matrix_multiply_hsa_simple (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    print_string("hsa ref implementation\n");
+
+    for work_item in hsa.exec((n, m,  1), (32, 16, 1)) {
+        let x = work_item.gidx();
+        let y = work_item.gidy();
+
+        let mut rv = c.data(addr_tensor(x, y, c)) as f32;
+
+        for i in range(0, k) {
+            let av = a.data(addr_tensor(i, y, a)) as f32;
+            let bv = b.data(addr_tensor(x, i, b)) as f32;
+
+            rv += av * bv;
+        }
+
+        d.data(addr_tensor(x, y, d)) = rv as f16;
+    }
+}
