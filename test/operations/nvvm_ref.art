@@ -3,15 +3,9 @@ fn @get_accelerator () {
 }
 
 fn @accelerated_matmul (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    matrix_multiply_nvvm_simple(nvvm, a, b, c, d);
+    matrix_multiply_acc_simple [nvvm_mat_datatype, nvvm_acc_datatype] (nvvm, a, b, c, d);
 }
 
 fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    for x in range(0, c.x_dim) {
-        for y in range(0, c.y_dim) {
-            d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
-        }
-    }
-
-    matrix_multiply_blas(a, b, d);
+    matrix_multiply_naive(a, b, c, d);
 }

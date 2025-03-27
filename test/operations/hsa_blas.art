@@ -7,5 +7,11 @@ fn @accelerated_matmul (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d
 }
 
 fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    matrix_multiply_naive(a, b, c, d);
+    for x in range(0, c.x_dim) {
+        for y in range(0, c.y_dim) {
+            d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
+        }
+    }
+
+    matrix_multiply_blas(a, b, d);
 }

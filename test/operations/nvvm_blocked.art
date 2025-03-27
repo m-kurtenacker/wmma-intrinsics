@@ -3,7 +3,11 @@ fn @get_accelerator () {
 }
 
 fn @accelerated_matmul (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    matrix_multiply_nvvm(nvvm, a, b, c, d);
+    if (M % 128 == 0 && N % 128 == 0) {
+        matrix_multiply_acc_blocked [nvvm_mat_datatype, nvvm_acc_datatype] (nvvm, NVVMWMMAOperations, a, b, c, d);
+    } else {
+        matrix_multiply_acc_wmma [nvvm_mat_datatype, nvvm_acc_datatype](nvvm, NVVMWMMAOperations, a, b, c, d);
+    }
 }
 
 fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {

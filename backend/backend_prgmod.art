@@ -19,9 +19,10 @@
  *       (V      )
  */
 
-type ab_fragmenttype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
-type c_fragmenttype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+type prgmod_mat_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+type prgmod_acc_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
 
+static warp_size = 32;
 
 fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
     let m = a.y_dim;
@@ -77,7 +78,7 @@ fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor, b : Tensor, c : 
 
     fn @matrix_multiply_prgmod_warp(a_warp_tensor : Tensor, b_warp_tensor : Tensor, c_warp_tensor : Tensor, d_warp_tensor : Tensor) {
         //TODO: this depends on the current layout!
-        let mut acc_fragments : [[c_fragmenttype * 4] * 2];
+        let mut acc_fragments : [[prgmod_acc_datatype * 4] * 2];
 
         /* Load C fragments into registers */
         for tile_x in unroll(0, warp_x_tiles) {
@@ -93,7 +94,7 @@ fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor, b : Tensor, c : 
         }
 
         for global_k in range_step(0, k, tile_size_k) {
-            let mut a_fragments : [ab_fragmenttype * 4];
+            let mut a_fragments : [prgmod_mat_datatype * 4];
 
             for tile_x in unroll(0, warp_x_tiles /* = 2 */) {
                 let local_x = tile_x * tile_size_x;

@@ -19,17 +19,10 @@
  *       (V      )
  */
 
-// This should never change™.
-static warp_size = 32;
-static device_mp_count = 20; //TODO: Turn that into an intrinsic or something?
+type nvvm_acc_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+type nvvm_mat_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
 
-
-fn @nvvm_wmma_expand (a_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
-        b_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
-        c_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]),
-        a_mode : AddrMode,
-        b_mode : AddrMode,
-        ) {
+fn @nvvm_wmma_expand (a_fragment : nvvm_mat_datatype, b_fragment : nvvm_mat_datatype, c_fragment : nvvm_acc_datatype, a_mode : AddrMode, b_mode : AddrMode) -> nvvm_acc_datatype {
     let (a1, a2, a3, a4, a5, a6, a7, a8) = a_fragment;
     let (b1, b2, b3, b4, b5, b6, b7, b8) = b_fragment;
     let (c1, c2, c3, c4) = c_fragment;
@@ -46,7 +39,7 @@ fn @nvvm_wmma_expand (a_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2],
     }
 }
 
-fn @nvvm_wmma_load_a_expand(fragment_tensor : Tensor) {
+fn @nvvm_wmma_load_a_expand(fragment_tensor : Tensor) -> nvvm_mat_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
@@ -65,7 +58,7 @@ fn @nvvm_wmma_load_a_expand(fragment_tensor : Tensor) {
     }
 }
 
-fn @nvvm_wmma_load_b_expand(fragment_tensor : Tensor) {
+fn @nvvm_wmma_load_b_expand(fragment_tensor : Tensor) -> nvvm_mat_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
@@ -84,7 +77,7 @@ fn @nvvm_wmma_load_b_expand(fragment_tensor : Tensor) {
     }
 }
 
-fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor) {
+fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor) -> nvvm_acc_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
@@ -103,561 +96,40 @@ fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor) {
     }
 }
 
-fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor, acc_fragment : (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2])) {
+fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor, acc_fragment : nvvm_acc_datatype) -> () {
     let d_cuda = bitcast[&mut i8](d_fragment_tensor.data);
     let (acc1, acc2, acc3, acc4) = acc_fragment;
 
     match d_fragment_tensor.addr_mode {
         AddrMode::RowMayor =>
             if (d_fragment_tensor.stride > 16) {
-                nvvm_wmma_store_d_row_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride)
+                nvvm_wmma_store_d_row_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride);
             } else {
-                nvvm_wmma_store_d_row(d_cuda, acc1, acc2, acc3, acc4)
+                nvvm_wmma_store_d_row(d_cuda, acc1, acc2, acc3, acc4);
             },
         AddrMode::ColMayor =>
             if (d_fragment_tensor.stride > 16) {
-                nvvm_wmma_store_d_col_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride)
+                nvvm_wmma_store_d_col_stride(d_cuda, acc1, acc2, acc3, acc4, d_fragment_tensor.stride);
             } else {
-                nvvm_wmma_store_d_col(d_cuda, acc1, acc2, acc3, acc4)
+                nvvm_wmma_store_d_col(d_cuda, acc1, acc2, acc3, acc4);
             }
     }
 }
 
-
-/* Blocked execution + caching A and B in shared memory to improve memory thoughput for loading these matricies in multiple warps of the same block during multiplication. */
-fn matrix_multiply_nvvm_blocked (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    let m = a.y_dim;
-    let n = b.x_dim;
-    //assert(a.x_dim == b.y_dim);
-    let k = a.x_dim;
-
-    //Each warp will be used to calcuate this geometry of tiles.
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
-
-    let warp_x_tiles = 2;
-    let warp_y_tiles = 4;
-
-    let block_x_warps = 4;
-    let block_y_warps = 2;
-
-
-    let block_x_tiles = block_x_warps * warp_x_tiles;
-    let block_y_tiles = block_y_warps * warp_y_tiles;
-
-    let block_size_x = block_x_tiles * tile_size_x;
-    let block_size_y = block_y_tiles * tile_size_y;
-
-    let warp_size_x = warp_x_tiles * tile_size_x;
-    let warp_size_y = warp_y_tiles * tile_size_y;
-
-    //Total matrix geometry
-    let matrix_x_tiles = n / tile_size_x;
-    let matrix_y_tiles = m / tile_size_y;
-
-    let matrix_x_blocks = matrix_x_tiles / block_x_tiles;
-    let matrix_y_blocks = matrix_y_tiles / block_y_tiles;
-
-    let matrix_total_blocks = matrix_x_blocks * matrix_y_blocks;
-    let block_total_warps = block_x_warps * block_y_warps;
-    let threads_per_block = block_total_warps * warp_size;
-
-    let parallel_blocks = device_mp_count;
-
-    print_string("execute blocked ");
-    print_string("tiles (");
-    print_i32(warp_x_tiles);
-    print_string(", ");
-    print_i32(warp_y_tiles);
-    print_string(") blocks (");
-    print_i32(matrix_x_blocks);
-    print_string(", ");
-    print_i32(matrix_y_blocks);
-    print_string(") launch (");
-    print_i32(parallel_blocks);
-    print_string(", ");
-    print_i32(threads_per_block);
-    print_string(")\n");
-
-    let k_shared_tiles = 4;
-    let skew_half = 16;
-    let shared_memory_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_y * 2;
-    //TODO: *2 is not correct, calculate second part based on block_size_x
-
-    for work_item in nvvm.exec((parallel_blocks * threads_per_block, 1, 1), (threads_per_block, 1, 1)) {
-        let shared_memory = bitcast[&mut [f16]](reserve_shared[f16](shared_memory_size));
-
-        let a_shared_tensor = Tensor {
-            data = shared_memory,
-            x_dim = tile_size_k * k_shared_tiles,
-            y_dim = block_size_y,
-            addr_mode = AddrMode::RowMayor,
-            stride = tile_size_k * k_shared_tiles + skew_half
-        };
-        let b_shared_tensor = Tensor {
-            data = bitcast[&mut[f16]](&shared_memory((tile_size_k * k_shared_tiles + skew_half) * block_size_y)), //TODO: calculate this offset elsewhere
-            x_dim = block_size_x,
-            y_dim = tile_size_k * k_shared_tiles,
-            addr_mode = AddrMode::ColMayor,
-            //stride = block_size_x + skew_half
-            stride = tile_size_k * k_shared_tiles + skew_half
-        };
-
-        let warp_id = work_item.tidx() / warp_size;
-        let lane_id = work_item.tidx() % warp_size;
-
-        for block_index in range_step(work_item.bidx(), matrix_total_blocks, parallel_blocks) {
-            let block_x = (block_index % matrix_x_blocks) * block_size_x;
-            let block_y = (block_index / matrix_x_blocks) * block_size_y;
-
-            let warp_x = block_x + (warp_id % block_x_warps) * warp_size_x;
-            let warp_y = block_y + (warp_id / block_x_warps) * warp_size_y;
-
-            //TODO: this depends on the current layout!
-            let mut acc_fragments : [[(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
-
-            /* Load C fragments into registers */
-            for tile_x in unroll(0, warp_x_tiles) {
-                for tile_y in unroll(0, warp_y_tiles) {
-                    let local_x = tile_x * tile_size_x;
-                    let local_y = tile_y * tile_size_y;
-
-                    let global_x = warp_x + local_x;
-                    let global_y = warp_y + local_y;
-
-                    let c_fragment_tensor = sub_tensor(c, global_x, global_y, tile_size_x, tile_size_y);
-                    let c_fragment = nvvm_wmma_load_c_expand(c_fragment_tensor);
-
-                    acc_fragments(tile_x)(tile_y) = c_fragment;
-                }
-            }
-
-            for global_k_sliced in range_step(0, k, tile_size_k * k_shared_tiles) { //TODO: That's l.295 in the sample, and should be unrolled!
-                //Populate shared tensors
-                let rows_per_warp = warp_size / (k_shared_tiles * 2);
-                let lanes_per_row = tile_size_k / 8 * k_shared_tiles;
-                if (warp_id < 4) { //tid 0 - 127
-                    for y_index in unroll_step(0, 128, rows_per_warp * 4) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
-                        let local_y = y_index + warp_id * rows_per_warp + (lane_id / lanes_per_row);
-                        let local_k = (lane_id % lanes_per_row) * 8;
-
-                        let global_y = block_y + local_y;
-                        let global_k = global_k_sliced + local_k;
-
-                        let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
-                        let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
-                        *target_ptr = *src_ptr;
-                    }
-                } else { //tid 128 - 255
-                    for x_index in unroll_step(0, 128, rows_per_warp * 4) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
-                        let local_x = x_index + (warp_id % 4) * rows_per_warp + (lane_id / lanes_per_row);
-                        let local_k = (lane_id % lanes_per_row) * 8;
-
-                        let global_x = block_x + local_x;
-                        let global_k = global_k_sliced + local_k;
-
-                        let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
-                        let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
-                        *target_ptr = *src_ptr;
-                    }
-                }
-
-                nvvm.barrier();
-
-                for local_k_tile in unroll(0, k_shared_tiles) {
-                    let local_k = local_k_tile * tile_size_k;
-
-                    let mut a_fragments : [(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4 /* warp_y_tiles */];
-
-                    for tile_x in unroll(0, warp_x_tiles /* 2 */) {
-                        let local_x = tile_x * tile_size_x;
-                        let global_x = warp_x + local_x;
-
-                        let in_block_x = global_x - block_x;
-
-                        let b_fragment_tensor = sub_tensor(b_shared_tensor, in_block_x, local_k, tile_size_x, tile_size_k);
-                        let b_fragment = nvvm_wmma_load_b_expand(b_fragment_tensor);
-
-                        for tile_y in unroll(0, warp_y_tiles /* 4 */) {
-                            let local_y = tile_y * tile_size_y;
-                            let global_y = warp_y + local_y;
-
-                            let in_block_y  = global_y - block_y;
-
-                            let acc_fragment = acc_fragments(tile_x)(tile_y);
-
-                            let a_fragment_tensor = sub_tensor(a_shared_tensor, local_k, in_block_y, tile_size_k, tile_size_y);
-                            if (tile_x == 0) {
-                                a_fragments(tile_y) = nvvm_wmma_load_a_expand(a_fragment_tensor);
-                            }
-                            let a_fragment = a_fragments(tile_y);
-
-                            let result_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
-
-                            acc_fragments(tile_x)(tile_y) = result_fragment;
-                        }
-                    }
-                }
-
-                nvvm.barrier();
-            }
-
-            for tile_x in unroll(0, warp_x_tiles) {
-                for tile_y in unroll(0, warp_y_tiles) {
-                    let local_x = tile_x * tile_size_x;
-                    let local_y = tile_y * tile_size_y;
-
-                    let global_x = warp_x + local_x;
-                    let global_y = warp_y + local_y;
-
-                    let result_fragment = acc_fragments(tile_x)(tile_y);
-
-                    let d_fragment_tensor = sub_tensor(d, global_x, global_y, tile_size_x, tile_size_y);
-
-                    nvvm_wmma_store_d_expand (d_fragment_tensor, result_fragment)
-                }
-            }
-        }
+static NVVMWMMAOperations = WMMAOperations [nvvm_mat_datatype, nvvm_acc_datatype] {
+    load_a = @|fragment_tensor| {
+        nvvm_wmma_load_a_expand(fragment_tensor)
+    },
+    load_b = @|fragment_tensor| {
+        nvvm_wmma_load_b_expand(fragment_tensor)
+    },
+    load_c = @|fragment_tensor| {
+        nvvm_wmma_load_c_expand(fragment_tensor)
+    },
+    wmma = @|a_fragment, a_layout, b_fragment, b_layout, acc_fragment, _c_layout| {
+        nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_layout, b_layout)
+    },
+    store_d = @|fragment_tensor, acc_fragment| {
+        nvvm_wmma_store_d_expand (fragment_tensor, acc_fragment);
     }
-}
-
-/* Similar to the tiled version, but reuses compute blocks to compute multiple matrix blocks. */
-fn matrix_multiply_nvvm_blocked_noshm (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    let m = a.y_dim;
-    let n = b.x_dim;
-    //assert(a.x_dim == b.y_dim);
-    let k = a.x_dim;
-
-    //Each warp will be used to calcuate this geometry of tiles.
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
-
-    let warp_x_tiles = 2;
-    let warp_y_tiles = 4;
-
-    let block_x_warps = 4;
-    let block_y_warps = 2;
-
-
-    let block_x_tiles = block_x_warps * warp_x_tiles;
-    let block_y_tiles = block_y_warps * warp_y_tiles;
-
-    let block_size_x = block_x_tiles * tile_size_x;
-    let block_size_y = block_y_tiles * tile_size_y;
-
-    let warp_size_x = warp_x_tiles * tile_size_x;
-    let warp_size_y = warp_y_tiles * tile_size_y;
-
-    //Total matrix geometry
-    let matrix_x_tiles = n / tile_size_x;
-    let matrix_y_tiles = m / tile_size_y;
-
-    let matrix_x_blocks = matrix_x_tiles / block_x_tiles;
-    let matrix_y_blocks = matrix_y_tiles / block_y_tiles;
-
-    let matrix_total_blocks = matrix_x_blocks * matrix_y_blocks;
-    let block_total_warps = block_x_warps * block_y_warps;
-    let threads_per_block = block_total_warps * warp_size;
-
-    let parallel_blocks = device_mp_count;
-
-    print_string("execute blocked ");
-    print_string("(");
-    print_i32(matrix_x_tiles);
-    print_string(", ");
-    print_i32(matrix_y_tiles);
-    print_string(") (");
-    print_i32(matrix_x_blocks);
-    print_string(", ");
-    print_i32(matrix_y_blocks);
-    print_string(") (");
-    print_i32(parallel_blocks);
-    print_string(", ");
-    print_i32(threads_per_block);
-    print_string(")\n");
-
-    for work_item in nvvm.exec((parallel_blocks * threads_per_block, 1, 1), (threads_per_block, 1, 1)) {
-        let warp_id = work_item.tidx() / warp_size;
-        //let lane_id = work_item.tidx() % warp_size;
-
-        for block_index in range_step(work_item.bidx(), matrix_total_blocks, parallel_blocks) {
-            let block_x = (block_index % matrix_x_blocks) * block_size_x;
-            let block_y = (block_index / matrix_x_blocks) * block_size_y;
-
-            let warp_x = block_x + (warp_id % block_x_warps) * warp_size_x;
-            let warp_y = block_y + (warp_id / block_x_warps) * warp_size_y;
-
-            //TODO: this depends on the current layout!
-            let mut acc_fragments : [[(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
-
-            /* Load C fragments into registers */
-            for tile_x in range(0, warp_x_tiles) {
-                for tile_y in range(0, warp_y_tiles) {
-                    let local_x = tile_x * tile_size_x;
-                    let local_y = tile_y * tile_size_y;
-
-                    let global_x = warp_x + local_x;
-                    let global_y = warp_y + local_y;
-
-                    let c_fragment_tensor = sub_tensor(c, global_x, global_y, tile_size_x, tile_size_y);
-                    let c_fragment = nvvm_wmma_load_c_expand(c_fragment_tensor);
-
-                    acc_fragments(tile_x)(tile_y) = c_fragment;
-                }
-            }
-
-            for global_k in range_step(0, k, tile_size_k) {
-                let mut a_fragments : [(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4 /* warp_y_tiles */];
-
-                for tile_x in unroll(0, warp_x_tiles /* 2 */) {
-                    let local_x = tile_x * tile_size_x;
-                    let global_x = warp_x + local_x;
-
-                    let b_fragment_tensor = sub_tensor(b, global_x, global_k, tile_size_x, tile_size_k);
-                    let b_fragment = nvvm_wmma_load_b_expand(b_fragment_tensor);
-
-                    for tile_y in unroll(0, warp_y_tiles /* 4 */) {
-                        let local_y = tile_y * tile_size_y;
-                        let global_y = warp_y + local_y;
-
-                        let acc_fragment = acc_fragments(tile_x)(tile_y);
-
-                        let a_fragment_tensor = sub_tensor(a, global_k, global_y, tile_size_k, tile_size_y);
-                        let a_fragment = if (tile_x == 0) {
-                            let a_fragment = nvvm_wmma_load_a_expand(a_fragment_tensor);
-                            a_fragments(tile_y) = a_fragment;
-                            a_fragment
-                        } else {
-                            a_fragments(tile_y)
-                        };
-
-                        let result_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
-
-                        acc_fragments(tile_x)(tile_y) = result_fragment;
-                    }
-                }
-            }
-
-            for tile_x in range(0, warp_x_tiles) {
-                for tile_y in range(0, warp_y_tiles) {
-                    let local_x = tile_x * tile_size_x;
-                    let local_y = tile_y * tile_size_y;
-
-                    let global_x = warp_x + local_x;
-                    let global_y = warp_y + local_y;
-
-                    let result_fragment = acc_fragments(tile_x)(tile_y);
-
-                    let d_fragment_tensor = sub_tensor(d, global_x, global_y, tile_size_x, tile_size_y);
-
-                    nvvm_wmma_store_d_expand (d_fragment_tensor, result_fragment)
-                }
-            }
-        }
-    }
-}
-
-/* Improved tiled version. We split the matrix in 16x16 tiles, and combine 8x8 such tiles to one block.
-   Each block will then be computed using 8 warps. Consequently, each warp will compute 8 tiles. */
-fn matrix_multiply_nvvm_tiled (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    let m = a.y_dim;
-    let n = b.x_dim;
-    //assert(a.x_dim == b.y_dim);
-    let k = a.x_dim;
-
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
-
-    //Each block will calculate x * y many tiles.
-    let block_x_tiles = 8;
-    let block_y_tiles = 8;
-
-    //Each warp will be used to calculate this geometry of tiles.
-    let warp_x_tiles = 2;
-    let warp_y_tiles = 4;
-
-    //Calculate the rest of the grid geometry
-    let block_x_warps = block_x_tiles / warp_x_tiles;
-    let block_y_warps = block_y_tiles / warp_y_tiles;
-
-    let matrix_x_tiles = n / tile_size_x;
-    let matrix_y_tiles = m / tile_size_y;
-
-    let matrix_x_warps = matrix_x_tiles / warp_x_tiles;
-    let matrix_y_warps = matrix_y_tiles / warp_y_tiles;
-
-    let matrix_x_blocks = matrix_x_warps / block_x_warps;
-    let matrix_y_blocks = matrix_y_warps / block_y_warps;
-
-    let block_x_threads = block_x_warps * warp_size;
-    let block_y_threads = block_y_warps;
-
-    let matrix_x_threads = matrix_x_blocks * block_x_threads;
-    let matrix_y_threads = matrix_y_blocks * block_y_threads;
-
-    print_string("tiled configuration: (");
-    print_i32(matrix_x_threads);
-    print_string(", ");
-    print_i32(matrix_y_threads);
-    print_string(") block size (");
-    print_i32(block_x_threads);
-    print_string(", ");
-    print_i32(block_y_threads);
-    print_string(")\n");
-
-    for work_item in nvvm.exec((matrix_x_threads, matrix_y_threads,  1), (block_x_threads, block_y_threads, 1)) {
-        let warp_x = work_item.gidx() / warp_size * warp_x_tiles * tile_size_x;
-        let warp_y = work_item.gidy() * warp_y_tiles * tile_size_y;
-
-        //TODO: this depends on the current layout!
-        let mut acc_fragments : [[(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4] * 2];
-
-        /* Load C fragments into registers */
-        for tile_x in range(0, warp_x_tiles) {
-            for tile_y in range(0, warp_y_tiles) {
-                let local_x = tile_x * tile_size_x;
-                let local_y = tile_y * tile_size_y;
-
-                let global_x = warp_x + local_x;
-                let global_y = warp_y + local_y;
-
-                let c_fragment_tensor = sub_tensor(c, global_x, global_y, tile_size_x, tile_size_y);
-                let c_fragment = nvvm_wmma_load_c_expand(c_fragment_tensor);
-
-                acc_fragments(tile_x)(tile_y) = c_fragment;
-            }
-        }
-
-        for global_k in range_step(0, k, tile_size_k) {
-            let mut a_fragments : [(simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]) * 4];
-
-            for tile_x in unroll(0, warp_x_tiles /* = 2 */) {
-                let local_x = tile_x * tile_size_x;
-                let global_x = warp_x + local_x;
-
-                let b_fragment_tensor = sub_tensor(b, global_x, global_k, tile_size_x, tile_size_k);
-                let b_fragment = nvvm_wmma_load_b_expand(b_fragment_tensor);
-
-                for tile_y in unroll(0, warp_y_tiles /* = 4 */) {
-                    let local_y = tile_y * tile_size_y;
-                    let global_y = warp_y + local_y;
-
-                    let acc_fragment = acc_fragments(tile_x)(tile_y);
-
-                    let a_fragment_tensor = sub_tensor(a, global_k, global_y, tile_size_k, tile_size_y);
-                    let a_fragment = if (tile_x == 0) {
-                        let a_fragment = nvvm_wmma_load_a_expand(a_fragment_tensor);
-                        a_fragments(tile_y) = a_fragment;
-                        a_fragment
-                    } else {
-                        a_fragments(tile_y)
-                    };
-
-                    let result_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
-
-                    acc_fragments(tile_x)(tile_y) = result_fragment;
-                }
-            }
-        }
-
-        for tile_x in range(0, warp_x_tiles) {
-            for tile_y in range(0, warp_y_tiles) {
-                let local_x = tile_x * tile_size_x;
-                let local_y = tile_y * tile_size_y;
-
-                let global_x = warp_x + local_x;
-                let global_y = warp_y + local_y;
-
-                let result_fragment = acc_fragments(tile_x)(tile_y);
-
-                let d_fragment_tensor = sub_tensor(d, global_x, global_y, tile_size_x, tile_size_y);
-
-                nvvm_wmma_store_d_expand (d_fragment_tensor, result_fragment)
-            }
-        }
-    }
-}
-
-/* Simple WMMA based implementation, does not include a fancy tiling strategy. */
-fn matrix_multiply_nvvm (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    let m = a.y_dim;
-    let n = b.x_dim;
-    //assert(a.x_dim == b.y_dim);
-    let k = a.x_dim;
-
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
-
-    //We run blocks containing block_factor_x * block_factor_y many tiles.
-    let block_factor_x = select(n % (tile_size_x * 2) != 0, 1, select(n % (tile_size_x * 4) != 0, 2, 4));
-    let block_factor_y = select(m % (tile_size_y * 2) != 0, 1, select(m % (tile_size_y * 4) != 0, 2, 4));
-
-    let matrix_x_threads = n * warp_size / tile_size_x;
-    let matrix_y_threads = m / tile_size_y;
-
-    //Each output tile will be computed by one warp, so we run block_x_threads * block_y_threads many threads.
-    //Dividing gidx by the warp size will give us the tile a specific work_item should compute.
-    let block_x_threads = warp_size * block_factor_x;
-    let block_y_threads = block_factor_y;
-
-    print_string("simple configuration: (");
-    print_i32(matrix_x_threads);
-    print_string(", ");
-    print_i32(matrix_y_threads);
-    print_string(") block size (");
-    print_i32(block_x_threads);
-    print_string(", ");
-    print_i32(block_y_threads);
-    print_string(")\n");
-
-    for work_item in nvvm.exec((matrix_x_threads, matrix_y_threads,  1), (block_x_threads, block_y_threads, 1)) {
-        let tile_x = work_item.gidx() / warp_size * tile_size_x;
-        let tile_y = work_item.gidy() * tile_size_y;
-
-        let c_fragment_tensor = sub_tensor(c, tile_x, tile_y, tile_size_x, tile_size_y);
-        let mut acc_fragment = nvvm_wmma_load_c_expand(c_fragment_tensor);
-
-        for global_k in range_step(0, k, tile_size_k) {
-            let a_fragment_tensor = sub_tensor(a, global_k, tile_y, tile_size_k, tile_size_y);
-            let b_fragment_tensor = sub_tensor(b, tile_x, global_k, tile_size_x, tile_size_k);
-
-            let a_fragment = nvvm_wmma_load_a_expand(a_fragment_tensor);
-            let b_fragment = nvvm_wmma_load_b_expand(b_fragment_tensor);
-
-            acc_fragment = nvvm_wmma_expand (a_fragment, b_fragment, acc_fragment, a_fragment_tensor.addr_mode, b_fragment_tensor.addr_mode);
-        }
-
-        let d_fragment_tensor = sub_tensor(d, tile_x, tile_y, tile_size_x, tile_size_y);
-        nvvm_wmma_store_d_expand (d_fragment_tensor, acc_fragment)
-    }
-}
-
-/* Baseline NVVM implementation, does not use WMMA intrinsics. */
-fn matrix_multiply_nvvm_simple (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    let m = a.y_dim;
-    let n = b.x_dim;
-    //assert(a.x_dim == b.y_dim);
-    let k = a.x_dim;
-
-    print_string("nvvm ref implementation\n");
-
-    for work_item in nvvm.exec((n, m,  1), (32, 16, 1)) {
-        let x = work_item.gidx();
-        let y = work_item.gidy();
-
-        let mut rv = c.data(addr_tensor(x, y, c)) as f32;
-
-        for i in range(0, k) {
-            let av = a.data(addr_tensor(i, y, a)) as f32;
-            let bv = b.data(addr_tensor(x, i, b)) as f32;
-
-            rv += av * bv;
-        }
-
-        d.data(addr_tensor(x, y, d)) = rv as f16;
-    }
-}
+};
