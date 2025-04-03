@@ -31,7 +31,7 @@ type amdgcn_mat_datatype = simd[f16 * 16];
 
 #[import(cc = "device", name = "llvm.amdgcn.wmma.f16.16x16x16.f16.v16f16.v16f16")] fn amdgcn_wmma(amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype, bool) -> amdgcn_acc_datatype;
 
-static HSAWMMAOperations = WMMAOperations [amdgcn_mat_datatype, amdgcn_acc_datatype] {
+static HSAWMMAOperations = WMMAOperations [amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype] {
     load_a = @|fragment_tensor| {
         let lane = amdgcn_workitem_id_x() % 16;
         let mut fragment : amdgcn_mat_datatype;

@@ -3,7 +3,7 @@ fn @get_accelerator () {
 }
 
 fn @accelerated_matmul (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    matrix_multiply_acc_simple [nvvm_mat_datatype, nvvm_acc_datatype] (nvvm, a, b, c, d);
+    matrix_multiply_acc_simple [nvvm_mat_datatype, nvvm_mat_datatype, nvvm_acc_datatype] (nvvm, a, b, c, d);
 }
 
 fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {

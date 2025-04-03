@@ -116,7 +116,7 @@ fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor, acc_fragment : nvvm_ac
     }
 }
 
-static NVVMWMMAOperations = WMMAOperations [nvvm_mat_datatype, nvvm_acc_datatype] {
+static NVVMWMMAOperations = WMMAOperations [nvvm_mat_datatype, nvvm_mat_datatype, nvvm_acc_datatype] {
     load_a = @|fragment_tensor| {
         nvvm_wmma_load_a_expand(fragment_tensor)
     },
