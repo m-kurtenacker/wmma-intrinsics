@@ -44,3 +44,11 @@ fn @sub_tensor(t : Tensor, x0 : i32, y0 : i32, xs : i32, ys : i32) =
              addr_mode = t.addr_mode,
              stride = t.stride
              };
+
+fn @sub_tensor_f32(t : Tensor_f32, x0 : i32, y0 : i32, xs : i32, ys : i32) =
+    Tensor_f32 {data = bitcast [&mut [f32]](&t.data(addr_tensor_f32(x0, y0, t))),
+                 x_dim = xs,
+                 y_dim = ys,
+                 addr_mode = t.addr_mode,
+                 stride = t.stride
+                 };

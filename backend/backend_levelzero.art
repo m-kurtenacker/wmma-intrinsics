@@ -1,0 +1,62 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+//Tested with ROCm 6.3.3
+//TODO: This requires a patch in runtime:
+/* in hsa_platform.cpp:616
+-    std::string attrs = "-trap-handler";
++    std::string attrs = "-trap-handler,+wavefrontsize32,-wavefrontsize64";
+*/
+
+//Scope 2 = WorkGroup; spirv.h:958
+//Scope 3 = SubGroup; spirv.h:959
+
+//These need backend support in thorin that is not present right now. Please refer to https://github.com/m-kurtenacker/thorin/tree/matmul and https://github.com/AnyDSL/artic/tree/feature/extern_type.
+type_ext spv_acc_datatype   = { "OpTypeCooperativeMatrixKHR", "float", "3",  "8",  "8", "2", "SPV_KHR_cooperative_matrix" };
+type_ext spv_mat_a_datatype = { "OpTypeCooperativeMatrixKHR",  "half", "3",  "8", "16", "0", "SPV_KHR_cooperative_matrix" };
+type_ext spv_mat_b_datatype = { "OpTypeCooperativeMatrixKHR",  "half", "3", "16",  "8", "1", "SPV_KHR_cooperative_matrix" };
+
+#[import(cc = "device", name = "spirv.coop_matrix.load")] fn spirv_matrix_load[T](&[u8], i32, i32) -> T;
+#[import(cc = "device", name = "spirv.coop_matrix.mad")] fn spirv_matrix_mad(spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype) -> spv_acc_datatype;
+#[import(cc = "device", name = "spirv.coop_matrix.store")] fn spirv_matrix_store(&mut [u8], spv_acc_datatype, i32, i32) -> ();
+
+fn match_layout(addr_mode : AddrMode) -> i32 = match addr_mode {
+    AddrMode::RowMayor => 0,
+    AddrMode::ColMayor => 1
+};
+
+static SPVWMMAOperations = WMMAOperations [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] {
+    load_a = @|fragment_tensor| {
+        spirv_matrix_load[spv_mat_a_datatype](bitcast[&[u8]](fragment_tensor.data), match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    },
+    load_b = @|fragment_tensor| {
+        spirv_matrix_load[spv_mat_b_datatype](bitcast[&[u8]](fragment_tensor.data), match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    },
+    load_c = @|fragment_tensor| {
+        spirv_matrix_load[spv_acc_datatype](bitcast[&[u8]](fragment_tensor.data), match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    },
+    wmma = @|a_fragment, _a_layout, b_fragment, _b_layout, acc_fragment, _c_layout| {
+        spirv_matrix_mad(a_fragment, b_fragment, acc_fragment)
+    },
+    store_d = @|fragment_tensor, acc_fragment| {
+        spirv_matrix_store(bitcast[&mut [u8]](fragment_tensor.data), acc_fragment, match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    }
+};
