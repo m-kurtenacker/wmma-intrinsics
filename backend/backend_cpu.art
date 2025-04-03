@@ -29,6 +29,16 @@ fn print_matrix (t : Tensor) -> () {
     }
 }
 
+fn print_matrix_f32 (t : Tensor_f32) -> () {
+    for y in range(0, t.y_dim) {
+        for x in range(0, t.x_dim) {
+            print_f32(t.data(addr_tensor_f32(x, y, t)));
+            if (x < t.x_dim - 1) { print_string(", "); }
+        }
+        print_string("\n");
+    }
+}
+
 
 fn matrix_multiply_naive (a : Tensor, b : Tensor, c : Tensor, r : Tensor) -> () {
     let m = a.y_dim;
@@ -52,6 +62,41 @@ fn matrix_multiply_naive (a : Tensor, b : Tensor, c : Tensor, r : Tensor) -> () 
             let cv = c.data(addr_tensor(x, y, c)) as f32;
 
             r.data(addr_tensor(x, y, r)) = (cv + rv) as f16;
+        }
+        if (print_progress) {
+            print_string("\r");
+            print_i32(y * 100 / m);
+            print_string("%");
+            print_flush();
+        }
+    }
+    if (print_progress) {
+        print_string("\r");
+    }
+}
+
+fn matrix_multiply_naive_alt (a : Tensor, b : Tensor, c : Tensor_f32, r : Tensor_f32) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    let print_progress = (m as i64 * n as i64 * k as i64) > (128 * 128 * 128);
+
+    for y in range(0, m) {
+        for x in range(0, n) {
+            let mut rv = 0 : f32;
+
+            for i in range(0, k) {
+                let av = a.data(addr_tensor(i, y, a)) as f32;
+                let bv = b.data(addr_tensor(x, i, b)) as f32;
+
+                rv += av * bv;
+            }
+
+            let cv = c.data(addr_tensor_f32(x, y, c));
+
+            r.data(addr_tensor_f32(x, y, r)) = (cv + rv);
         }
         if (print_progress) {
             print_string("\r");

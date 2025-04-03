@@ -3,7 +3,7 @@ fn @get_accelerator () {
 }
 
 fn @accelerated_matmul (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    matrix_multiply_acc_simple [amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, a, b, c, d);
+    matrix_multiply_acc_simple [amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, a, b, c, d);
 }
 
 fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {

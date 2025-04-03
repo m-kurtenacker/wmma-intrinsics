@@ -1,9 +1,9 @@
 fn @get_accelerator () {
-    nvvm_accelerator(0)
+    levelzero_accelerator(0)
 }
 
-fn @accelerated_matmul (nvvm : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
-    matrix_multiply_acc_simple [nvvm_mat_datatype, nvvm_mat_datatype, nvvm_acc_datatype] (nvvm, a, b, c, d);
+fn @accelerated_matmul (lzero : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    matrix_multiply_acc_simple [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] (lzero, a, b, c, d);
 }
 
 fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {

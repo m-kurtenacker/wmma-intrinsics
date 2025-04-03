@@ -4,9 +4,9 @@ fn @get_accelerator () {
 
 fn @accelerated_matmul (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
     if (M % 128 == 0 && N % 128 == 0) {
-        matrix_multiply_acc_tiled [amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, HSAWMMAOperations, a, b, c, d);
+        matrix_multiply_acc_tiled [amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, HSAWMMAOperations, a, b, c, d);
     } else {
-        matrix_multiply_acc_wmma [amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, HSAWMMAOperations, a, b, c, d);
+        matrix_multiply_acc_wmma [amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, HSAWMMAOperations, a, b, c, d);
     }
 }
 

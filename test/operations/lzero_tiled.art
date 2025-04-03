@@ -1,0 +1,21 @@
+fn @get_accelerator () {
+    levelzero_accelerator(0)
+}
+
+fn @accelerated_matmul (lzero : Accelerator, a : Tensor, b : Tensor, c : Tensor_f32, d : Tensor_f32) -> () {
+    if (M % 128 == 0 && N % 128 == 0) {
+        matrix_multiply_acc_tiled [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] (lzero, SPVWMMAOperations, a, b, c, d);
+    } else {
+        matrix_multiply_acc_wmma [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] (lzero, SPVWMMAOperations, a, b, c, d);
+    }
+}
+
+fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+    for x in range(0, c.x_dim) {
+        for y in range(0, c.y_dim) {
+            d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
+        }
+    }
+
+    matrix_multiply_blas(a, b, d);
+}

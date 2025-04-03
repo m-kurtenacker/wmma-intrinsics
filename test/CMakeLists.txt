@@ -26,7 +26,7 @@ function (add_wmma_test)
 endfunction()
 
 set(BACKEND "nvvm" CACHE STRING "select the backend from the following: NVVM, AMDGPU_HSA, ONEAPI")
-set_property(CACHE BACKEND PROPERTY STRINGS nvvm amdgpu_hsa oneapi)
+set_property(CACHE BACKEND PROPERTY STRINGS nvvm amdgpu_hsa levelzero oneapi)
 string(TOLOWER ${BACKEND} BACKEND)
 
 if (BACKEND STREQUAL "nvvm")
@@ -78,6 +78,16 @@ elseif (BACKEND STREQUAL "amdgpu_hsa")
 
     add_wmma_test(NAME large_ref  FILES common.art operations/hsa_blocked.art layouts/large.art)
     target_link_libraries(large_ref ${BLAS_LIBRARIES})
+elseif (BACKEND STREQUAL "levelzero")
+    #add_wmma_test(NAME simple FILES common.art operations/lzero_ref.art layouts/simple.art)
+    #add_wmma_test(NAME layout FILES common.art operations/lzero_ref.art layouts/layout.art)
+    #add_wmma_test(NAME medium FILES common.art operations/lzero_ref.art layouts/medium.art)
+
+    #add_wmma_test(NAME large  FILES common.art operations/lzero_blas.art layouts/large.art)
+    #target_link_libraries(large ${BLAS_LIBRARIES})
+
+    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art layouts/medium.art)
+    target_link_libraries(large_tiled ${BLAS_LIBRARIES})
 elseif (BACKEND STREQUAL "oneapi")
     add_subdirectory(oneapi)
 endif()
