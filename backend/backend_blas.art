@@ -20,35 +20,21 @@
  */
 
 
-fn convert_tensor (src : Tensor) -> Tensor_f32 {
+fn convert_tensor (src : Tensor[f16]) -> Tensor[f32] {
     let dst_cpu = bitcast[&mut[f32]](alloc_cpu(sizeof[f32]() * src.x_dim as i64 * src.y_dim as i64).data);
 
-    let dst = Tensor_f32 { data = dst_cpu, x_dim = src.x_dim, y_dim = src.y_dim, addr_mode = src.addr_mode, stride = src.stride };
+    let dst = Tensor[f32] { data = dst_cpu, x_dim = src.x_dim, y_dim = src.y_dim, addr_mode = src.addr_mode, stride = src.stride };
 
     for x in range(0, src.x_dim) {
         for y in range(0, src.y_dim) {
-            dst.data(addr_tensor_f32(x, y, dst)) = src.data(addr_tensor(x, y, src)) as f32;
+            dst.data(addr_tensor(x, y, dst)) = src.data(addr_tensor(x, y, src)) as f32;
         }
     }
 
     dst
 }
 
-fn back_convert_tensor (src : Tensor_f32) -> Tensor {
-    let dst_cpu = bitcast[&mut[f16]](alloc_cpu(sizeof[f16]() * src.x_dim as i64 * src.y_dim as i64).data);
-
-    let dst = Tensor { data = dst_cpu, x_dim = src.x_dim, y_dim = src.y_dim, addr_mode = src.addr_mode, stride = src.stride };
-
-    for x in range(0, src.x_dim) {
-        for y in range(0, src.y_dim) {
-            dst.data(addr_tensor(x, y, dst)) = src.data(addr_tensor_f32(x, y, src)) as f16;
-        }
-    }
-
-    dst
-}
-
-fn matrix_multiply_blas (a : Tensor, b : Tensor, c : Tensor) -> () {
+fn matrix_multiply_blas (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16]) -> () {
     let m = a.y_dim as i64;
     let n = b.x_dim as i64;
     //assert(a.x_dim == b.y_dim);
@@ -62,7 +48,7 @@ fn matrix_multiply_blas (a : Tensor, b : Tensor, c : Tensor) -> () {
 
     for x in range(0, c_f32.x_dim) {
         for y in range(0, c_f32.y_dim) {
-            c.data(addr_tensor(x, y, c)) = c_f32.data(addr_tensor_f32(x, y, c_f32)) as f16;
+            c.data(addr_tensor(x, y, c)) = c_f32.data(addr_tensor(x, y, c_f32)) as f16;
         }
     }
 }

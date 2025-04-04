@@ -31,15 +31,15 @@ static wave_size = 32;
 static device_mp_count = 20; //TODO: Turn that into an intrinsic or something?
 
 struct WMMAOperations [mat_a_type, mat_b_type, acc_type] {
-    load_a : fn (Tensor) -> mat_a_type,
-    load_b : fn (Tensor) -> mat_b_type,
-    load_c : fn (Tensor) -> acc_type,
+    load_a : fn (Tensor[f16]) -> mat_a_type,
+    load_b : fn (Tensor[f16]) -> mat_b_type,
+    load_c : fn (Tensor[f16]) -> acc_type,
     wmma : fn (mat_a_type, AddrMode, mat_b_type, AddrMode, acc_type, AddrMode) -> acc_type,
-    store_d : fn (Tensor, acc_type) -> ()
+    store_d : fn (Tensor[f16], acc_type) -> ()
 }
 
 /* Blocked execution + caching A and B in shared memory to improve memory thoughput for loading these matricies in multiple warps of the same block during multiplication. */
-fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -102,14 +102,14 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
     for work_item in acc.exec((parallel_blocks * threads_per_block, 1, 1), (threads_per_block, 1, 1)) {
         let shared_memory = bitcast[&mut [f16]](reserve_shared[f16](shared_memory_size));
 
-        let a_shared_tensor = Tensor {
+        let a_shared_tensor = Tensor[f16] {
             data = shared_memory,
             x_dim = tile_size_k * k_shared_tiles,
             y_dim = block_size_y,
             addr_mode = AddrMode::RowMayor,
             stride = tile_size_k * k_shared_tiles + skew_half
         };
-        let b_shared_tensor = Tensor {
+        let b_shared_tensor = Tensor[f16] {
             data = bitcast[&mut[f16]](&shared_memory((tile_size_k * k_shared_tiles + skew_half) * block_size_y)), //TODO: calculate this offset elsewhere
             x_dim = block_size_x,
             y_dim = tile_size_k * k_shared_tiles,
@@ -237,7 +237,7 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
 }
 
 /* Similar to the tiled version, but reuses compute blocks to compute multiple matrix blocks. */
-fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -375,7 +375,7 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
 
 /* Improved tiled version. We split the matrix in 16x16 tiles, and combine 8x8 such tiles to one block.
    Each block will then be computed using 8 warps. Consequently, each warp will compute 8 tiles. */
-fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -496,7 +496,7 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
 }
 
 /* Simple WMMA based implementation, does not include a fancy tiling strategy. */
-fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -549,7 +549,7 @@ fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerato
 }
 
 /* Baseline implementation, does not use WMMA intrinsics. */
-fn matrix_multiply_acc_simple [_mat_a_type, _mat_b_type, _acc_type] (acc : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn matrix_multiply_acc_simple [_mat_a_type, _mat_b_type, _acc_type] (acc : Accelerator, a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);

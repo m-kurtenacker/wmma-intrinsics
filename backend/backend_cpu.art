@@ -19,7 +19,7 @@
  *       (V      )
  */
 
-fn print_matrix (t : Tensor) -> () {
+fn print_matrix (t : Tensor[f16]) -> () {
     for y in range(0, t.y_dim) {
         for x in range(0, t.x_dim) {
             print_f32(t.data(addr_tensor(x, y, t)) as f32);
@@ -30,7 +30,7 @@ fn print_matrix (t : Tensor) -> () {
 }
 
 
-fn matrix_multiply_naive (a : Tensor, b : Tensor, c : Tensor, r : Tensor) -> () {
+fn matrix_multiply_naive (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], r : Tensor[f16]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);

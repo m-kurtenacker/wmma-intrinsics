@@ -2,7 +2,7 @@ fn @get_accelerator () {
     amdgpu_hsa_accelerator(1)
 }
 
-fn @accelerated_matmul (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn @accelerated_matmul (hsa : Accelerator, a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     if (M % 128 == 0 && N % 128 == 0) {
         matrix_multiply_acc_blocked [amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, HSAWMMAOperations, a, b, c, d);
     } else {
@@ -10,7 +10,7 @@ fn @accelerated_matmul (hsa : Accelerator, a : Tensor, b : Tensor, c : Tensor, d
     }
 }
 
-fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn @ref_matmul (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     for x in range(0, c.x_dim) {
         for y in range(0, c.y_dim) {
             d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));

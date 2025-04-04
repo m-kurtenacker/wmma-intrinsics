@@ -2,10 +2,10 @@ fn @get_accelerator () {
     levelzero_accelerator(0)
 }
 
-fn @accelerated_matmul (lzero : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn @accelerated_matmul (lzero : Accelerator, a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     matrix_multiply_acc_simple [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] (lzero, a, b, c, d);
 }
 
-fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn @ref_matmul (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     matrix_multiply_naive(a, b, c, d);
 }

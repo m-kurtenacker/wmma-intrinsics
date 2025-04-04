@@ -62,7 +62,7 @@ fn cblas_gemm[T] (layout : CBLAS_LAYOUT, transpose_a : CBLAS_TRANSPOSE, transpos
 fn mkl_malloc (_size: i64, _align: i32) -> &mut [i8];
 
 
-fn matrix_multiply_oneapi_half (a : Tensor, b : Tensor, c : Tensor) -> () {
+fn matrix_multiply_oneapi_half (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16]) -> () {
     let m = a.y_dim as i64;
     let n = b.x_dim as i64;
     //assert(a.x_dim == b.y_dim);
@@ -71,7 +71,7 @@ fn matrix_multiply_oneapi_half (a : Tensor, b : Tensor, c : Tensor) -> () {
     cblas_hgemm(101, 111, 111, m, n, k, bitcast[u16](1 : f16), bitcast[&mut [f16]](a.data), a.stride as i64, bitcast[&mut [f16]](b.data), b.stride as i64, bitcast[u16](1 : f16), bitcast[&mut [f16]](c.data), c.stride as i64)
 }
 
-fn matrix_multiply_oneapi (a : Tensor_f32, b : Tensor_f32, c : Tensor_f32) -> () {
+fn matrix_multiply_oneapi (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32]) -> () {
     let m = a.y_dim as i64;
     let n = b.x_dim as i64;
     //assert(a.x_dim == b.y_dim);
@@ -80,7 +80,7 @@ fn matrix_multiply_oneapi (a : Tensor_f32, b : Tensor_f32, c : Tensor_f32) -> ()
     cblas_gemm[f32](CBLAS_LAYOUT::CblasRowMajor, CBLAS_TRANSPOSE::CblasNoTrans, CBLAS_TRANSPOSE::CblasNoTrans, m, n, k, 1.0, bitcast[&mut [f32]](a.data), a.stride as i64, bitcast[&mut [f32]](b.data), b.stride as i64, 1.0, bitcast[&mut [f32]](c.data), c.stride as i64)
 }
 
-fn matrix_multiply_oneapi_double (a : Tensor_f64, b : Tensor_f64, c : Tensor_f64) -> () {
+fn matrix_multiply_oneapi_double (a : Tensor[f64], b : Tensor[f64], c : Tensor[f64]) -> () {
     let m = a.y_dim as i64;
     let n = b.x_dim as i64;
     //assert(a.x_dim == b.y_dim);

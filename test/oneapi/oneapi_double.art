@@ -58,15 +58,15 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     for n in range(0, N * K) { b_cpu(n) = random_val_f32() as f16; }
     for n in range(0, N * M) { c_cpu(n) = random_val_f32() as f16; d_cpu(n) = 0; r_cpu(n) = 0; }
 
-    let a_tensor = Tensor { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
-    let b_tensor = Tensor { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
-    let c_tensor = Tensor { data = c_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
-    let d_tensor = Tensor { data = d_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
-    let r_tensor = Tensor { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let a_tensor = Tensor[f16] { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_tensor = Tensor[f16] { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_tensor = Tensor[f16] { data = c_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let d_tensor = Tensor[f16] { data = d_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let r_tensor = Tensor[f16] { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
-    let a_mkl_tensor = Tensor_f64 { data = a_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
-    let b_mkl_tensor = Tensor_f64 { data = b_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
-    let c_mkl_tensor = Tensor_f64 { data = c_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let a_mkl_tensor = Tensor[f64] { data = a_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_mkl_tensor = Tensor[f64] { data = b_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let c_mkl_tensor = Tensor[f64] { data = c_mkl, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
 
     
     // OneAPI implementation

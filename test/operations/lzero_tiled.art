@@ -3,10 +3,10 @@ fn @get_accelerator () {
 }
 
 //TODO: these should not be needed. But being polymorphic in tensor element type breaks artic and thorin right now.
-//These are copies taken from backend_gpu.art, replacing the tile sizes (which is fixable by making them an element of ops) and the Tensor type for c and d.
+//These are copies taken from backend_gpu.art, replacing the tile sizes (which is fixable by making them an element of ops) and the Tensor[f16] type for c and d.
 //Also: [[acc_type * y] * x] and the corresponding accesses are not supported, so lambdas are used for that. This should be ported to backend_gpu.art probably.
 //Warning: The current solution requires the loops over tile_x and tile_y to be unrolled. Otherwise the program compiles and runs but results are incorrect 😳
-fn matrix_multiply_acc_tiled_intel [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor, b : Tensor, c : Tensor_f32, d : Tensor_f32) -> () {
+fn matrix_multiply_acc_tiled_intel [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f32], d : Tensor[f32]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -90,8 +90,8 @@ fn matrix_multiply_acc_tiled_intel [mat_a_type, mat_b_type, acc_type] (acc : Acc
                 let global_x = warp_x + local_x;
                 let global_y = warp_y + local_y;
 
-                let c_fragment_tensor = sub_tensor_f32(c, global_x, global_y, tile_size_x, tile_size_y);
-                let c_cast = Tensor { data = bitcast[&mut [f16]](c_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = c_fragment_tensor.addr_mode, stride = c_fragment_tensor.stride };
+                let c_fragment_tensor = sub_tensor(c, global_x, global_y, tile_size_x, tile_size_y);
+                let c_cast = Tensor[f16] { data = bitcast[&mut [f16]](c_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = c_fragment_tensor.addr_mode, stride = c_fragment_tensor.stride };
                 let c_fragment = ops.load_c(c_cast);
 
                 *acc_fragments(tile_x)(tile_y) = c_fragment;
@@ -153,8 +153,8 @@ fn matrix_multiply_acc_tiled_intel [mat_a_type, mat_b_type, acc_type] (acc : Acc
 
                 let result_fragment = *acc_fragments(tile_x)(tile_y);
 
-                let d_fragment_tensor = sub_tensor_f32(d, global_x, global_y, tile_size_x, tile_size_y);
-                let d_cast = Tensor { data = bitcast[&mut [f16]](d_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = d_fragment_tensor.addr_mode, stride = d_fragment_tensor.stride };
+                let d_fragment_tensor = sub_tensor(d, global_x, global_y, tile_size_x, tile_size_y);
+                let d_cast = Tensor[f16] { data = bitcast[&mut [f16]](d_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = d_fragment_tensor.addr_mode, stride = d_fragment_tensor.stride };
 
                 ops.store_d (d_cast, result_fragment);
             }
@@ -162,7 +162,7 @@ fn matrix_multiply_acc_tiled_intel [mat_a_type, mat_b_type, acc_type] (acc : Acc
     }
 }
 
-fn matrix_multiply_acc_wmma_intel [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor, b : Tensor, c : Tensor_f32, d : Tensor_f32) -> () {
+fn matrix_multiply_acc_wmma_intel [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f32], d : Tensor[f32]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -198,8 +198,8 @@ fn matrix_multiply_acc_wmma_intel [mat_a_type, mat_b_type, acc_type] (acc : Acce
         let tile_x = work_item.gidx() / wave_size * tile_size_x;
         let tile_y = work_item.gidy() * tile_size_y;
 
-        let c_fragment_tensor = sub_tensor_f32(c, tile_x, tile_y, tile_size_x, tile_size_y);
-        let c_cast = Tensor { data = bitcast[&mut [f16]](c_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = c_fragment_tensor.addr_mode, stride = c_fragment_tensor.stride };
+        let c_fragment_tensor = sub_tensor(c, tile_x, tile_y, tile_size_x, tile_size_y);
+        let c_cast = Tensor[f16] { data = bitcast[&mut [f16]](c_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = c_fragment_tensor.addr_mode, stride = c_fragment_tensor.stride };
         let mut acc_fragment = ops.load_c(c_cast);
 
         for global_k in range_step(0, k, tile_size_k) {
@@ -212,23 +212,23 @@ fn matrix_multiply_acc_wmma_intel [mat_a_type, mat_b_type, acc_type] (acc : Acce
             acc_fragment = ops.wmma(a_fragment, a_fragment_tensor.addr_mode, b_fragment, b_fragment_tensor.addr_mode, acc_fragment, c_fragment_tensor.addr_mode);
         }
 
-        let d_fragment_tensor = sub_tensor_f32(d, tile_x, tile_y, tile_size_x, tile_size_y);
-        let d_cast = Tensor { data = bitcast[&mut [f16]](d_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = d_fragment_tensor.addr_mode, stride = d_fragment_tensor.stride };
+        let d_fragment_tensor = sub_tensor(d, tile_x, tile_y, tile_size_x, tile_size_y);
+        let d_cast = Tensor[f16] { data = bitcast[&mut [f16]](d_fragment_tensor.data), x_dim = 0, y_dim = 0, addr_mode = d_fragment_tensor.addr_mode, stride = d_fragment_tensor.stride };
         ops.store_d(d_cast, acc_fragment);
     }
 }
 
-fn @accelerated_matmul (lzero : Accelerator, a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn @accelerated_matmul (lzero : Accelerator, a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     let num_elements = (c.x_dim * c.y_dim) as i64;
 
     let c_f32_buffer = lzero.alloc(sizeof[f32]() * num_elements);
     let d_f32_buffer = lzero.alloc(sizeof[f32]() * num_elements);
 
-    let c_f32 = Tensor_f32 { data = bitcast[&mut[f32]](c_f32_buffer.data), x_dim = c.x_dim, y_dim = c.y_dim, addr_mode = c.addr_mode, stride = c.stride };
-    let d_f32 = Tensor_f32 { data = bitcast[&mut[f32]](d_f32_buffer.data), x_dim = d.x_dim, y_dim = d.y_dim, addr_mode = d.addr_mode, stride = d.stride };
+    let c_f32 = Tensor[f32] { data = bitcast[&mut[f32]](c_f32_buffer.data), x_dim = c.x_dim, y_dim = c.y_dim, addr_mode = c.addr_mode, stride = c.stride };
+    let d_f32 = Tensor[f32] { data = bitcast[&mut[f32]](d_f32_buffer.data), x_dim = d.x_dim, y_dim = d.y_dim, addr_mode = d.addr_mode, stride = d.stride };
 
     for work_item in lzero.exec((c.x_dim, c.y_dim, 1), (1, 1, 1)) {
-        c_f32.data(addr_tensor_f32(work_item.gidx(), work_item.gidy(), c_f32)) = c.data(addr_tensor(work_item.gidx(), work_item.gidy(), c)) as f32;
+        c_f32.data(addr_tensor(work_item.gidx(), work_item.gidy(), c_f32)) = c.data(addr_tensor(work_item.gidx(), work_item.gidy(), c)) as f32;
     }
 
     if (M % 64 == 0 && N % 64 == 0) {
@@ -238,11 +238,11 @@ fn @accelerated_matmul (lzero : Accelerator, a : Tensor, b : Tensor, c : Tensor,
     }
 
     for work_item in lzero.exec((d.x_dim, d.y_dim, 1), (1, 1, 1)) {
-        d.data(addr_tensor(work_item.gidx(), work_item.gidy(), d)) = d_f32.data(addr_tensor_f32(work_item.gidx(), work_item.gidy(), d_f32)) as f16;
+        d.data(addr_tensor(work_item.gidx(), work_item.gidy(), d)) = d_f32.data(addr_tensor(work_item.gidx(), work_item.gidy(), d_f32)) as f16;
     }
 }
 
-fn @ref_matmul (a : Tensor, b : Tensor, c : Tensor, d : Tensor) -> () {
+fn @ref_matmul (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
     for x in range(0, c.x_dim) {
         for y in range(0, c.y_dim) {
             d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
