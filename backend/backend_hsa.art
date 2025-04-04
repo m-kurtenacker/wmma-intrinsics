@@ -26,8 +26,8 @@
 +    std::string attrs = "-trap-handler,+wavefrontsize32,-wavefrontsize64";
 */
 
-type amdgcn_acc_datatype = simd[f16 * 16];
-type amdgcn_mat_datatype = simd[f16 * 16];
+type amdgcn_acc_datatype = simd[c_element_type * 16];
+type amdgcn_mat_datatype = simd[a_element_type * 16];
 
 #[import(cc = "device", name = "llvm.amdgcn.wmma.f16.16x16x16.f16.v16f16.v16f16")] fn amdgcn_wmma(amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype, bool) -> amdgcn_acc_datatype;
 

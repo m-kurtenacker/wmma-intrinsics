@@ -24,7 +24,7 @@ type prgmod_acc_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f1
 
 static warp_size = 32;
 
-fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -76,7 +76,7 @@ fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor[f16], b : Tensor[
 
 
 
-    fn @matrix_multiply_prgmod_warp(a_warp_tensor : Tensor[f16], b_warp_tensor : Tensor[f16], c_warp_tensor : Tensor[f16], d_warp_tensor : Tensor[f16]) {
+    fn @matrix_multiply_prgmod_warp(a_warp_tensor : Tensor[a_element_type], b_warp_tensor : Tensor[b_element_type], c_warp_tensor : Tensor[c_element_type], d_warp_tensor : Tensor[c_element_type]) {
         //TODO: this depends on the current layout!
         let mut acc_fragments : [[prgmod_acc_datatype * 4] * 2];
 
@@ -137,7 +137,7 @@ fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor[f16], b : Tensor[
     }
 
 
-    fn @matrix_multiply_prgmod_warp_simple(a_warp_tensor : Tensor[f16], b_warp_tensor : Tensor[f16], c_warp_tensor : Tensor[f16], d_warp_tensor : Tensor[f16]) {
+    fn @matrix_multiply_prgmod_warp_simple(a_warp_tensor : Tensor[a_element_type], b_warp_tensor : Tensor[b_element_type], c_warp_tensor : Tensor[c_element_type], d_warp_tensor : Tensor[c_element_type]) {
         let tidx = nvvm_read_ptx_sreg_tid_x();
         let lane_id = tidx % warp_size;
 
@@ -159,14 +159,14 @@ fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor[f16], b : Tensor[
                         rv += av * bv;
                     }
 
-                    d_warp_tensor.data(addr_tensor(x, y, d_warp_tensor)) = rv as f16;
+                    d_warp_tensor.data(addr_tensor(x, y, d_warp_tensor)) = rv as c_element_type;
                 }
             }
         }
     }
 
 
-    fn @matrix_multiply_prgmod_warp_vectorized(a_warp_tensor : Tensor[f16], b_warp_tensor : Tensor[f16], c_warp_tensor : Tensor[f16], d_warp_tensor : Tensor[f16]) {
+    fn @matrix_multiply_prgmod_warp_vectorized(a_warp_tensor : Tensor[a_element_type], b_warp_tensor : Tensor[b_element_type], c_warp_tensor : Tensor[c_element_type], d_warp_tensor : Tensor[c_element_type]) {
         let tidx = nvvm_read_ptx_sreg_tid_x();
         let lane_id = tidx % warp_size;
 

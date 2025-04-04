@@ -30,36 +30,36 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let cstride = match clayout { AddrMode::RowMayor => N, AddrMode::ColMayor => M };
 
     // Produce data set on host
-    let a_cpu_buffer = alloc_cpu(sizeof[f16]() * (K * M) as i64);
-    let b_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * K) as i64);
-    let c_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
-    let d_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
-    let r_cpu_buffer = alloc_cpu(sizeof[f16]() * (N * M) as i64);
+    let a_cpu_buffer = alloc_cpu(sizeof[a_element_type]() * (K * M) as i64);
+    let b_cpu_buffer = alloc_cpu(sizeof[b_element_type]() * (N * K) as i64);
+    let c_cpu_buffer = alloc_cpu(sizeof[c_element_type]() * (N * M) as i64);
+    let d_cpu_buffer = alloc_cpu(sizeof[c_element_type]() * (N * M) as i64);
+    let r_cpu_buffer = alloc_cpu(sizeof[c_element_type]() * (N * M) as i64);
 
-    let a_cpu = bitcast[&mut [f16]](a_cpu_buffer.data);
-    let b_cpu = bitcast[&mut [f16]](b_cpu_buffer.data);
-    let c_cpu = bitcast[&mut [f16]](c_cpu_buffer.data);
-    let d_cpu = bitcast[&mut [f16]](d_cpu_buffer.data);
-    let r_cpu = bitcast[&mut [f16]](r_cpu_buffer.data);
+    let a_cpu = bitcast[&mut [a_element_type]](a_cpu_buffer.data);
+    let b_cpu = bitcast[&mut [b_element_type]](b_cpu_buffer.data);
+    let c_cpu = bitcast[&mut [c_element_type]](c_cpu_buffer.data);
+    let d_cpu = bitcast[&mut [c_element_type]](d_cpu_buffer.data);
+    let r_cpu = bitcast[&mut [c_element_type]](r_cpu_buffer.data);
 
-    for n in range(0, M * K) { a_cpu(n) = random_val_f32() as f16; }
-    for n in range(0, N * K) { b_cpu(n) = random_val_f32() as f16; }
-    for n in range(0, N * M) { c_cpu(n) = random_val_f32() as f16; d_cpu(n) = 0 as f16; r_cpu(n) = 0 as f16; }
+    for n in range(0, M * K) { a_cpu(n) = random_val_f32() as a_element_type; }
+    for n in range(0, N * K) { b_cpu(n) = random_val_f32() as b_element_type; }
+    for n in range(0, N * M) { c_cpu(n) = random_val_f32() as c_element_type; d_cpu(n) = 0 : c_element_type; r_cpu(n) = 0 : c_element_type; }
 
     // Copy data to device
-    let a_cuda_buffer = acc.alloc(sizeof[f16]() * (K * M) as i64);
-    let b_cuda_buffer = acc.alloc(sizeof[f16]() * (N * K) as i64);
-    let c_cuda_buffer = acc.alloc(sizeof[f16]() * (N * M) as i64);
-    let d_cuda_buffer = acc.alloc(sizeof[f16]() * (N * M) as i64);
+    let a_cuda_buffer = acc.alloc(sizeof[a_element_type]() * (K * M) as i64);
+    let b_cuda_buffer = acc.alloc(sizeof[b_element_type]() * (N * K) as i64);
+    let c_cuda_buffer = acc.alloc(sizeof[c_element_type]() * (N * M) as i64);
+    let d_cuda_buffer = acc.alloc(sizeof[c_element_type]() * (N * M) as i64);
 
     copy(a_cpu_buffer, a_cuda_buffer);
     copy(b_cpu_buffer, b_cuda_buffer);
     copy(c_cpu_buffer, c_cuda_buffer);
 
-    let a_global_tensor = Tensor[f16] { data = bitcast[&mut[f16]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
-    let b_global_tensor = Tensor[f16] { data = bitcast[&mut[f16]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
-    let c_global_tensor = Tensor[f16] { data = bitcast[&mut[f16]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
-    let d_global_tensor = Tensor[f16] { data = bitcast[&mut[f16]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let a_global_tensor = Tensor[a_element_type] { data = bitcast[&mut[a_element_type]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_global_tensor = Tensor[b_element_type] { data = bitcast[&mut[b_element_type]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_global_tensor = Tensor[c_element_type] { data = bitcast[&mut[c_element_type]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let d_global_tensor = Tensor[c_element_type] { data = bitcast[&mut[c_element_type]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
     // NVVM multiply tensors
     print_string("NVVM multiplication:\n");
@@ -80,10 +80,10 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     // Fetch result
     copy(d_cuda_buffer, d_cpu_buffer);
 
-    let a_tensor = Tensor[f16] { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
-    let b_tensor = Tensor[f16] { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
-    let c_tensor = Tensor[f16] { data = c_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
-    let r_tensor = Tensor[f16] { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let a_tensor = Tensor[a_element_type] { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_tensor = Tensor[b_element_type] { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_tensor = Tensor[c_element_type] { data = c_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let r_tensor = Tensor[c_element_type] { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
     // Ref implementation
     print_string("CPU multiplication:\n");
@@ -98,14 +98,14 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     }
 
     // Compare results
-    let d_tensor = Tensor[f16] { data = d_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let d_tensor = Tensor[c_element_type] { data = d_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
     if (debug_prints) {
         print_string("NVVM result:\n");
-        print_matrix(d_tensor);
+        print_matrix[c_element_type](d_tensor);
         print_string("\n");
         print_string("CPU result:\n");
-        print_matrix(r_tensor);
+        print_matrix[c_element_type](r_tensor);
         print_string("\n");
     }
 
@@ -117,7 +117,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
 
     if (debug_prints) {
         print_string("Difference:\n");
-        print_matrix(r_tensor);
+        print_matrix[c_element_type](r_tensor);
         print_string("\n");
     }
 

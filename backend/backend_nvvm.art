@@ -39,7 +39,7 @@ fn @nvvm_wmma_expand (a_fragment : nvvm_mat_datatype, b_fragment : nvvm_mat_data
     }
 }
 
-fn @nvvm_wmma_load_a_expand(fragment_tensor : Tensor[f16]) -> nvvm_mat_datatype {
+fn @nvvm_wmma_load_a_expand(fragment_tensor : Tensor[a_element_type]) -> nvvm_mat_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
@@ -58,7 +58,7 @@ fn @nvvm_wmma_load_a_expand(fragment_tensor : Tensor[f16]) -> nvvm_mat_datatype 
     }
 }
 
-fn @nvvm_wmma_load_b_expand(fragment_tensor : Tensor[f16]) -> nvvm_mat_datatype {
+fn @nvvm_wmma_load_b_expand(fragment_tensor : Tensor[b_element_type]) -> nvvm_mat_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
@@ -77,7 +77,7 @@ fn @nvvm_wmma_load_b_expand(fragment_tensor : Tensor[f16]) -> nvvm_mat_datatype 
     }
 }
 
-fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor[f16]) -> nvvm_acc_datatype {
+fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor[c_element_type]) -> nvvm_acc_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
@@ -96,7 +96,7 @@ fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor[f16]) -> nvvm_acc_datatype 
     }
 }
 
-fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor[f16], acc_fragment : nvvm_acc_datatype) -> () {
+fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor[c_element_type], acc_fragment : nvvm_acc_datatype) -> () {
     let d_cuda = bitcast[&mut i8](d_fragment_tensor.data);
     let (acc1, acc2, acc3, acc4) = acc_fragment;
 

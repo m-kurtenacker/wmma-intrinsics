@@ -31,24 +31,24 @@ static wave_size = 32;
 static device_mp_count = 20; //TODO: Turn that into an intrinsic or something?
 
 struct WMMAOperations [mat_a_type, mat_b_type, acc_type] {
-    load_a : fn (Tensor[f16]) -> mat_a_type,
-    load_b : fn (Tensor[f16]) -> mat_b_type,
-    load_c : fn (Tensor[f16]) -> acc_type,
+    load_a : fn (Tensor[a_element_type]) -> mat_a_type,
+    load_b : fn (Tensor[b_element_type]) -> mat_b_type,
+    load_c : fn (Tensor[c_element_type]) -> acc_type,
     wmma : fn (mat_a_type, AddrMode, mat_b_type, AddrMode, acc_type, AddrMode) -> acc_type,
-    store_d : fn (Tensor[f16], acc_type) -> ()
+    store_d : fn (Tensor[c_element_type], acc_type) -> ()
 }
 
 /* Blocked execution + caching A and B in shared memory to improve memory thoughput for loading these matricies in multiple warps of the same block during multiplication. */
-fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
     //Each warp will be used to calcuate this geometry of tiles.
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
+    //let tile_size_x = 16;
+    //let tile_size_y = 16;
+    //let tile_size_k = 16;
 
     let warp_x_tiles = 2;
     let warp_y_tiles = 4;
@@ -96,21 +96,22 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
 
     let k_shared_tiles = 4;
     let skew_half = 16;
-    let shared_memory_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_y * 2;
-    //TODO: *2 is not correct, calculate second part based on block_size_x
+    let shared_a_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_y;
+    let shared_b_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_x;
 
     for work_item in acc.exec((parallel_blocks * threads_per_block, 1, 1), (threads_per_block, 1, 1)) {
-        let shared_memory = bitcast[&mut [f16]](reserve_shared[f16](shared_memory_size));
+        let shared_memory_a = bitcast[&mut [a_element_type]](reserve_shared[a_element_type](shared_a_size));
+        let shared_memory_b = bitcast[&mut [b_element_type]](reserve_shared[b_element_type](shared_b_size));
 
-        let a_shared_tensor = Tensor[f16] {
-            data = shared_memory,
+        let a_shared_tensor = Tensor[a_element_type] {
+            data = shared_memory_a,
             x_dim = tile_size_k * k_shared_tiles,
             y_dim = block_size_y,
             addr_mode = AddrMode::RowMayor,
             stride = tile_size_k * k_shared_tiles + skew_half
         };
-        let b_shared_tensor = Tensor[f16] {
-            data = bitcast[&mut[f16]](&shared_memory((tile_size_k * k_shared_tiles + skew_half) * block_size_y)), //TODO: calculate this offset elsewhere
+        let b_shared_tensor = Tensor[b_element_type] {
+            data = shared_memory_b,
             x_dim = block_size_x,
             y_dim = tile_size_k * k_shared_tiles,
             addr_mode = AddrMode::ColMayor,
@@ -129,7 +130,30 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
             let warp_y = block_y + (warp_id / block_x_warps) * wave_size_y;
 
             //TODO: this depends on the current layout!
-            let mut acc_fragments : [[acc_type * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
+            //Warning: [[acc_type * y] * x] and the corresponding accesses are not supported on the level zero backend, so lambdas are used for that.
+            //Warning: The current solution requires the loops over tile_x and tile_y to be unrolled. Otherwise the program compiles and runs but results are incorrect 😳
+            //let mut acc_fragments : [[acc_type * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
+            let mut acc_fragment_0 : acc_type;
+            let mut acc_fragment_1 : acc_type;
+            let mut acc_fragment_2 : acc_type;
+            let mut acc_fragment_3 : acc_type;
+            let mut acc_fragment_4 : acc_type;
+            let mut acc_fragment_5 : acc_type;
+            let mut acc_fragment_6 : acc_type;
+            let mut acc_fragment_7 : acc_type;
+            let acc_fragments = @|tile_x : i32| { @|tile_y : i32| {
+                match (tile_x, tile_y) {
+                    (0, 0) => &mut acc_fragment_0,
+                    (0, 1) => &mut acc_fragment_1,
+                    (0, 2) => &mut acc_fragment_2,
+                    (0, 3) => &mut acc_fragment_3,
+                    (1, 0) => &mut acc_fragment_4,
+                    (1, 1) => &mut acc_fragment_5,
+                    (1, 2) => &mut acc_fragment_6,
+                    (1, 3) => &mut acc_fragment_7,
+                    _ => &mut acc_fragment_0
+                }
+            }};
 
             /* Load C fragments into registers */
             for tile_x in unroll(0, warp_x_tiles) {
@@ -143,7 +167,7 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
                     let c_fragment_tensor = sub_tensor(c, global_x, global_y, tile_size_x, tile_size_y);
                     let c_fragment = ops.load_c(c_fragment_tensor);
 
-                    acc_fragments(tile_x)(tile_y) = c_fragment;
+                    *acc_fragments(tile_x)(tile_y) = c_fragment;
                 }
             }
 
@@ -182,7 +206,20 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
                 for local_k_tile in unroll(0, k_shared_tiles) {
                     let local_k = local_k_tile * tile_size_k;
 
-                    let mut a_fragments : [mat_a_type * 4 /* warp_y_tiles */];
+                    //let mut a_fragments : [mat_a_type * 4 /* warp_y_tiles */];
+                    let mut a_fragment_0 : mat_a_type;
+                    let mut a_fragment_1 : mat_a_type;
+                    let mut a_fragment_2 : mat_a_type;
+                    let mut a_fragment_3 : mat_a_type;
+                    let a_fragments = @|tile_y : i32| {
+                        match tile_y {
+                            0 => &mut a_fragment_0,
+                            1 => &mut a_fragment_1,
+                            2 => &mut a_fragment_2,
+                            3 => &mut a_fragment_3,
+                            _ => &mut a_fragment_0
+                        }
+                    };
 
                     for tile_x in unroll(0, warp_x_tiles /* 2 */) {
                         let local_x = tile_x * tile_size_x;
@@ -199,17 +236,17 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
 
                             let in_block_y  = global_y - block_y;
 
-                            let acc_fragment = acc_fragments(tile_x)(tile_y);
+                            let acc_fragment = *acc_fragments(tile_x)(tile_y);
 
                             let a_fragment_tensor = sub_tensor(a_shared_tensor, local_k, in_block_y, tile_size_k, tile_size_y);
                             if (tile_x == 0) {
-                                a_fragments(tile_y) = ops.load_a(a_fragment_tensor);
+                                *a_fragments(tile_y) = ops.load_a(a_fragment_tensor);
                             }
-                            let a_fragment = a_fragments(tile_y);
+                            let a_fragment = *a_fragments(tile_y);
 
                             let result_fragment = ops.wmma (a_fragment, a_fragment_tensor.addr_mode, b_fragment, b_fragment_tensor.addr_mode, acc_fragment, c.addr_mode);
 
-                            acc_fragments(tile_x)(tile_y) = result_fragment;
+                            *acc_fragments(tile_x)(tile_y) = result_fragment;
                         }
                     }
                 }
@@ -225,7 +262,7 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
                     let global_x = warp_x + local_x;
                     let global_y = warp_y + local_y;
 
-                    let result_fragment = acc_fragments(tile_x)(tile_y);
+                    let result_fragment = *acc_fragments(tile_x)(tile_y);
 
                     let d_fragment_tensor = sub_tensor(d, global_x, global_y, tile_size_x, tile_size_y);
 
@@ -237,16 +274,16 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
 }
 
 /* Similar to the tiled version, but reuses compute blocks to compute multiple matrix blocks. */
-fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
     //Each warp will be used to calcuate this geometry of tiles.
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
+    //let tile_size_x = 16;
+    //let tile_size_y = 16;
+    //let tile_size_k = 16;
 
     let warp_x_tiles = 2;
     let warp_y_tiles = 4;
@@ -304,11 +341,34 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
             let warp_y = block_y + (warp_id / block_x_warps) * wave_size_y;
 
             //TODO: this depends on the current layout!
-            let mut acc_fragments : [[acc_type * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
+            //Warning: [[acc_type * y] * x] and the corresponding accesses are not supported on the level zero backend, so lambdas are used for that.
+            //Warning: The current solution requires the loops over tile_x and tile_y to be unrolled. Otherwise the program compiles and runs but results are incorrect 😳
+            //let mut acc_fragments : [[acc_type * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
+            let mut acc_fragment_0 : acc_type;
+            let mut acc_fragment_1 : acc_type;
+            let mut acc_fragment_2 : acc_type;
+            let mut acc_fragment_3 : acc_type;
+            let mut acc_fragment_4 : acc_type;
+            let mut acc_fragment_5 : acc_type;
+            let mut acc_fragment_6 : acc_type;
+            let mut acc_fragment_7 : acc_type;
+            let acc_fragments = @|tile_x : i32| { @|tile_y : i32| {
+                match (tile_x, tile_y) {
+                    (0, 0) => &mut acc_fragment_0,
+                    (0, 1) => &mut acc_fragment_1,
+                    (0, 2) => &mut acc_fragment_2,
+                    (0, 3) => &mut acc_fragment_3,
+                    (1, 0) => &mut acc_fragment_4,
+                    (1, 1) => &mut acc_fragment_5,
+                    (1, 2) => &mut acc_fragment_6,
+                    (1, 3) => &mut acc_fragment_7,
+                    _ => &mut acc_fragment_0
+                }
+            }};
 
             /* Load C fragments into registers */
-            for tile_x in range(0, warp_x_tiles) {
-                for tile_y in range(0, warp_y_tiles) {
+            for tile_x in unroll(0, warp_x_tiles) {
+                for tile_y in unroll(0, warp_y_tiles) {
                     let local_x = tile_x * tile_size_x;
                     let local_y = tile_y * tile_size_y;
 
@@ -318,12 +378,25 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
                     let c_fragment_tensor = sub_tensor(c, global_x, global_y, tile_size_x, tile_size_y);
                     let c_fragment = ops.load_c(c_fragment_tensor);
 
-                    acc_fragments(tile_x)(tile_y) = c_fragment;
+                    *acc_fragments(tile_x)(tile_y) = c_fragment;
                 }
             }
 
             for global_k in range_step(0, k, tile_size_k) {
-                let mut a_fragments : [mat_a_type * 4 /* warp_y_tiles */];
+                //let mut a_fragments : [mat_a_type * 4 /* warp_y_tiles */];
+                let mut a_fragment_0 : mat_a_type;
+                let mut a_fragment_1 : mat_a_type;
+                let mut a_fragment_2 : mat_a_type;
+                let mut a_fragment_3 : mat_a_type;
+                let a_fragments = @|tile_y : i32| {
+                    match tile_y {
+                        0 => &mut a_fragment_0,
+                        1 => &mut a_fragment_1,
+                        2 => &mut a_fragment_2,
+                        3 => &mut a_fragment_3,
+                        _ => &mut a_fragment_0
+                    }
+                };
 
                 for tile_x in unroll(0, warp_x_tiles /* 2 */) {
                     let local_x = tile_x * tile_size_x;
@@ -336,33 +409,30 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
                         let local_y = tile_y * tile_size_y;
                         let global_y = warp_y + local_y;
 
-                        let acc_fragment = acc_fragments(tile_x)(tile_y);
+                        let acc_fragment = *acc_fragments(tile_x)(tile_y);
 
                         let a_fragment_tensor = sub_tensor(a, global_k, global_y, tile_size_k, tile_size_y);
-                        let a_fragment = if (tile_x == 0) {
-                            let a_fragment = ops.load_a(a_fragment_tensor);
-                            a_fragments(tile_y) = a_fragment;
-                            a_fragment
-                        } else {
-                            a_fragments(tile_y)
-                        };
+                        if (tile_x == 0) {
+                            *a_fragments(tile_y) = ops.load_a(a_fragment_tensor);
+                        }
+                        let a_fragment = *a_fragments(tile_y);
 
                         let result_fragment = ops.wmma (a_fragment, a_fragment_tensor.addr_mode, b_fragment, b_fragment_tensor.addr_mode, acc_fragment, c.addr_mode);
 
-                        acc_fragments(tile_x)(tile_y) = result_fragment;
+                        *acc_fragments(tile_x)(tile_y) = result_fragment;
                     }
                 }
             }
 
-            for tile_x in range(0, warp_x_tiles) {
-                for tile_y in range(0, warp_y_tiles) {
+            for tile_x in unroll(0, warp_x_tiles) {
+                for tile_y in unroll(0, warp_y_tiles) {
                     let local_x = tile_x * tile_size_x;
                     let local_y = tile_y * tile_size_y;
 
                     let global_x = warp_x + local_x;
                     let global_y = warp_y + local_y;
 
-                    let result_fragment = acc_fragments(tile_x)(tile_y);
+                    let result_fragment = *acc_fragments(tile_x)(tile_y);
 
                     let d_fragment_tensor = sub_tensor(d, global_x, global_y, tile_size_x, tile_size_y);
 
@@ -375,15 +445,15 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
 
 /* Improved tiled version. We split the matrix in 16x16 tiles, and combine 8x8 such tiles to one block.
    Each block will then be computed using 8 warps. Consequently, each warp will compute 8 tiles. */
-fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
+    //let tile_size_x = 16;
+    //let tile_size_y = 16;
+    //let tile_size_k = 16;
 
     //Each block will calculate x * y many tiles.
     let block_x_tiles = 8;
@@ -427,11 +497,34 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
         let warp_y = work_item.gidy() * warp_y_tiles * tile_size_y;
 
         //TODO: this depends on the current layout!
-        let mut acc_fragments : [[acc_type * 4] * 2];
+        //Warning: [[acc_type * y] * x] and the corresponding accesses are not supported on the level zero backend, so lambdas are used for that.
+        //Warning: The current solution requires the loops over tile_x and tile_y to be unrolled. Otherwise the program compiles and runs but results are incorrect 😳
+        //let mut acc_fragments : [[acc_type * 4] * 2];
+        let mut acc_fragment_0 : acc_type;
+        let mut acc_fragment_1 : acc_type;
+        let mut acc_fragment_2 : acc_type;
+        let mut acc_fragment_3 : acc_type;
+        let mut acc_fragment_4 : acc_type;
+        let mut acc_fragment_5 : acc_type;
+        let mut acc_fragment_6 : acc_type;
+        let mut acc_fragment_7 : acc_type;
+        let acc_fragments = @|tile_x : i32| { @|tile_y : i32| {
+            match (tile_x, tile_y) {
+                (0, 0) => &mut acc_fragment_0,
+                (0, 1) => &mut acc_fragment_1,
+                (0, 2) => &mut acc_fragment_2,
+                (0, 3) => &mut acc_fragment_3,
+                (1, 0) => &mut acc_fragment_4,
+                (1, 1) => &mut acc_fragment_5,
+                (1, 2) => &mut acc_fragment_6,
+                (1, 3) => &mut acc_fragment_7,
+                _ => &mut acc_fragment_0
+            }
+        }};
 
         /* Load C fragments into registers */
-        for tile_x in range(0, warp_x_tiles) {
-            for tile_y in range(0, warp_y_tiles) {
+        for tile_x in unroll(0, warp_x_tiles) {
+            for tile_y in unroll(0, warp_y_tiles) {
                 let local_x = tile_x * tile_size_x;
                 let local_y = tile_y * tile_size_y;
 
@@ -441,12 +534,25 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
                 let c_fragment_tensor = sub_tensor(c, global_x, global_y, tile_size_x, tile_size_y);
                 let c_fragment = ops.load_c(c_fragment_tensor);
 
-                acc_fragments(tile_x)(tile_y) = c_fragment;
+                *acc_fragments(tile_x)(tile_y) = c_fragment;
             }
         }
 
         for global_k in range_step(0, k, tile_size_k) {
-            let mut a_fragments : [mat_a_type * 4];
+            //let mut a_fragments : [mat_a_type * 4];
+            let mut a_fragment_0 : mat_a_type;
+            let mut a_fragment_1 : mat_a_type;
+            let mut a_fragment_2 : mat_a_type;
+            let mut a_fragment_3 : mat_a_type;
+            let a_fragments = @|tile_y : i32| {
+                match tile_y {
+                    0 => &mut a_fragment_0,
+                    1 => &mut a_fragment_1,
+                    2 => &mut a_fragment_2,
+                    3 => &mut a_fragment_3,
+                    _ => &mut a_fragment_0
+                }
+            };
 
             for tile_x in unroll(0, warp_x_tiles /* = 2 */) {
                 let local_x = tile_x * tile_size_x;
@@ -459,33 +565,30 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
                     let local_y = tile_y * tile_size_y;
                     let global_y = warp_y + local_y;
 
-                    let acc_fragment = acc_fragments(tile_x)(tile_y);
+                    let acc_fragment = *acc_fragments(tile_x)(tile_y);
 
                     let a_fragment_tensor = sub_tensor(a, global_k, global_y, tile_size_k, tile_size_y);
-                    let a_fragment = if (tile_x == 0) {
-                        let a_fragment = ops.load_a(a_fragment_tensor);
-                        a_fragments(tile_y) = a_fragment;
-                        a_fragment
-                    } else {
-                        a_fragments(tile_y)
-                    };
+                    if (tile_x == 0) {
+                        *a_fragments(tile_y) = ops.load_a(a_fragment_tensor);
+                    }
+                    let a_fragment = *a_fragments(tile_y);
 
                     let result_fragment = ops.wmma (a_fragment, a_fragment_tensor.addr_mode, b_fragment, b_fragment_tensor.addr_mode, acc_fragment, c.addr_mode);
 
-                    acc_fragments(tile_x)(tile_y) = result_fragment;
+                    *acc_fragments(tile_x)(tile_y) = result_fragment;
                 }
             }
         }
 
-        for tile_x in range(0, warp_x_tiles) {
-            for tile_y in range(0, warp_y_tiles) {
+        for tile_x in unroll(0, warp_x_tiles) {
+            for tile_y in unroll(0, warp_y_tiles) {
                 let local_x = tile_x * tile_size_x;
                 let local_y = tile_y * tile_size_y;
 
                 let global_x = warp_x + local_x;
                 let global_y = warp_y + local_y;
 
-                let result_fragment = acc_fragments(tile_x)(tile_y);
+                let result_fragment = *acc_fragments(tile_x)(tile_y);
 
                 let d_fragment_tensor = sub_tensor(d, global_x, global_y, tile_size_x, tile_size_y);
 
@@ -496,15 +599,15 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
 }
 
 /* Simple WMMA based implementation, does not include a fancy tiling strategy. */
-fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    let tile_size_x = 16;
-    let tile_size_y = 16;
-    let tile_size_k = 16;
+    //let tile_size_x = 16;
+    //let tile_size_y = 16;
+    //let tile_size_k = 16;
 
     //We run blocks containing block_factor_x * block_factor_y many tiles.
     let block_factor_x = select(n % (tile_size_x * 2) != 0, 1, select(n % (tile_size_x * 4) != 0, 2, 4));
@@ -549,7 +652,7 @@ fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerato
 }
 
 /* Baseline implementation, does not use WMMA intrinsics. */
-fn matrix_multiply_acc_simple [_mat_a_type, _mat_b_type, _acc_type] (acc : Accelerator, a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn matrix_multiply_acc_simple [_mat_a_type, _mat_b_type, _acc_type] (acc : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -573,6 +676,6 @@ fn matrix_multiply_acc_simple [_mat_a_type, _mat_b_type, _acc_type] (acc : Accel
             rv += av * bv;
         }
 
-        d.data(addr_tensor(x, y, d)) = rv as f16;
+        d.data(addr_tensor(x, y, d)) = rv as c_element_type;
     }
 }

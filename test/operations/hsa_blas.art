@@ -1,12 +1,20 @@
+type a_element_type = f16;
+type b_element_type = f16;
+type c_element_type = f16;
+
+static tile_size_x = 16;
+static tile_size_y = 16;
+static tile_size_k = 16;
+
 fn @get_accelerator () {
     amdgpu_hsa_accelerator(1)
 }
 
-fn @accelerated_matmul (hsa : Accelerator, a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn @accelerated_matmul (hsa : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     matrix_multiply_acc_simple [amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype] (hsa, a, b, c, d);
 }
 
-fn @ref_matmul (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], d : Tensor[f16]) -> () {
+fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     for x in range(0, c.x_dim) {
         for y in range(0, c.y_dim) {
             d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));

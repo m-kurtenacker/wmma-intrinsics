@@ -19,10 +19,16 @@
  *       (V      )
  */
 
-fn print_matrix (t : Tensor[f16]) -> () {
+
+struct print_function[T] { print : fn (T) -> () }
+implicit = print_function[f16] { print = @| a | { print_f32(a as f32); } };
+implicit = print_function[f32] { print = @| a | { print_f32(a); } };
+implicit = print_function[f64] { print = @| a | { print_f64(a); } };
+
+fn print_matrix[T] (t : Tensor[T], implicit print : print_function[T]) -> () {
     for y in range(0, t.y_dim) {
         for x in range(0, t.x_dim) {
-            print_f32(t.data(addr_tensor(x, y, t)) as f32);
+            print.print(t.data(addr_tensor(x, y, t)));
             if (x < t.x_dim - 1) { print_string(", "); }
         }
         print_string("\n");
@@ -30,7 +36,7 @@ fn print_matrix (t : Tensor[f16]) -> () {
 }
 
 
-fn matrix_multiply_naive (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], r : Tensor[f16]) -> () {
+fn matrix_multiply_naive (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], r : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
@@ -51,7 +57,7 @@ fn matrix_multiply_naive (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16], r :
 
             let cv = c.data(addr_tensor(x, y, c)) as f32;
 
-            r.data(addr_tensor(x, y, r)) = (cv + rv) as f16;
+            r.data(addr_tensor(x, y, r)) = (cv + rv) as c_element_type;
         }
         if (print_progress) {
             print_string("\r");
