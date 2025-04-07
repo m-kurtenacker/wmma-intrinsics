@@ -1,0 +1,29 @@
+type a_element_type = f16;
+type b_element_type = f16;
+type c_element_type = f32;
+
+static tile_size_x = 8;
+static tile_size_y = 8;
+static tile_size_k = 16;
+
+fn @get_accelerator () {
+    levelzero_accelerator(0)
+}
+
+fn @accelerated_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    if (M % 64 == 0 && N % 64 == 0) {
+        matrix_multiply_acc_blocked [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] (lzero, SPVWMMAOperations, a, b, c, d);
+    } else {
+        matrix_multiply_acc_wmma [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] (lzero, SPVWMMAOperations, a, b, c, d);
+    }
+}
+
+fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    for x in range(0, c.x_dim) {
+        for y in range(0, c.y_dim) {
+            d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
+        }
+    }
+
+    matrix_multiply_blas(a, b, d);
+}
