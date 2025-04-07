@@ -171,10 +171,10 @@ fn matrix_multiply_nvvm_prgmod (nvvm : Accelerator, a : Tensor[a_element_type], 
         let lane_id = tidx % warp_size;
 
         //assert(warp_x_tiles == 2);
-        //assert(a_warp_tensor.layout == RowMayor);
-        //assert(b_warp_tensor.layout == ColMayor);
-        //assert(c_warp_tensor.layout == RowMayor);
-        //assert(d_warp_tensor.layout == RowMayor);
+        //assert(a_warp_tensor.layout == RowMajor);
+        //assert(b_warp_tensor.layout == ColMajor);
+        //assert(c_warp_tensor.layout == RowMajor);
+        //assert(d_warp_tensor.layout == RowMajor);
 
         let x = (lane_id * 4) % warp_size_x;
         let y_offset = (lane_id * 4) / warp_size_x;

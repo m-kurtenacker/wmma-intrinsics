@@ -5,9 +5,9 @@ layouts = ["row", "col"]
 
 def translate(layout):
     if layout == "row":
-        return "AddrMode::RowMayor"
+        return "AddrMode::RowMajor"
     elif layout == "col":
-        return "AddrMode::ColMayor"
+        return "AddrMode::ColMajor"
 
 def generate_test(n, m, k, al, bl, cl):
     with open("case_%s_%s_%s_%s_%s_%s.art" % (n, m, k, al, bl, cl), "w+") as f:

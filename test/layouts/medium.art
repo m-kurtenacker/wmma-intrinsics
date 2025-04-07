@@ -23,6 +23,6 @@ static N = 256;
 static M = 256;
 static K = 256;
 
-static alayout = AddrMode::RowMayor;
-static blayout = AddrMode::ColMayor;
-static clayout = AddrMode::RowMayor;
+static alayout = AddrMode::RowMajor;
+static blayout = AddrMode::ColMajor;
+static clayout = AddrMode::RowMajor;

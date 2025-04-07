@@ -1,6 +1,6 @@
 enum AddrMode {
-    RowMayor,
-    ColMayor
+    RowMajor,
+    ColMajor
 }
 
 struct Tensor[T] {
@@ -12,8 +12,8 @@ struct Tensor[T] {
 }
 
 fn @addr_tensor[T] (x : i32, y : i32, t : Tensor[T]) = match t.addr_mode {
-    AddrMode::RowMayor => x + y * t.stride,
-    AddrMode::ColMayor => x * t.stride + y
+    AddrMode::RowMajor => x + y * t.stride,
+    AddrMode::ColMajor => x * t.stride + y
 };
 
 fn @sub_tensor[T](t : Tensor[T], x0 : i32, y0 : i32, xs : i32, ys : i32) =

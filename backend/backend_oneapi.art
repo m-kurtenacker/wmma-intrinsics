@@ -21,8 +21,8 @@
 
 /*
 layout:
-RowMayor => 101,
-ColMayor => 102,
+RowMajor => 101,
+ColMajor => 102,
 
 transpose:
 no_transpose => 111

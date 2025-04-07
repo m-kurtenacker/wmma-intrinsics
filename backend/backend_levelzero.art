@@ -39,8 +39,8 @@ type_ext spv_mat_b_datatype = { "OpTypeCooperativeMatrixKHR",  "half", "3", "16"
 #[import(cc = "device", name = "spirv.coop_matrix.store")] fn spirv_matrix_store(&mut [u8], spv_acc_datatype, i32, i32) -> ();
 
 fn match_layout(addr_mode : AddrMode) -> i32 = match addr_mode {
-    AddrMode::RowMayor => 0,
-    AddrMode::ColMayor => 1
+    AddrMode::RowMajor => 0,
+    AddrMode::ColMajor => 1
 };
 
 static SPVWMMAOperations = WMMAOperations [spv_mat_a_datatype, spv_mat_b_datatype, spv_acc_datatype] {

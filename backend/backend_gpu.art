@@ -107,14 +107,14 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
             data = shared_memory_a,
             x_dim = tile_size_k * k_shared_tiles,
             y_dim = block_size_y,
-            addr_mode = AddrMode::RowMayor,
+            addr_mode = AddrMode::RowMajor,
             stride = tile_size_k * k_shared_tiles + skew_half
         };
         let b_shared_tensor = Tensor[b_element_type] {
             data = shared_memory_b,
             x_dim = block_size_x,
             y_dim = tile_size_k * k_shared_tiles,
-            addr_mode = AddrMode::ColMayor,
+            addr_mode = AddrMode::ColMajor,
             //stride = block_size_x + skew_half
             stride = tile_size_k * k_shared_tiles + skew_half
         };

@@ -23,9 +23,9 @@ static N = 256;
 static M = 256;
 static K = 256;
 
-static alayout = AddrMode::RowMayor; //Must be equal for oneapi hgemm
-static blayout = AddrMode::RowMayor;
-static clayout = AddrMode::RowMayor;
+static alayout = AddrMode::RowMajor; //Must be equal for oneapi hgemm
+static blayout = AddrMode::RowMajor;
+static clayout = AddrMode::RowMajor;
 
 static debug_prints = false;
 
@@ -33,9 +33,9 @@ static debug_prints = false;
 fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     //let nvvm = nvvm_accelerator(0);
 
-    let astride = match alayout { AddrMode::RowMayor => K, AddrMode::ColMayor => M };
-    let bstride = match blayout { AddrMode::RowMayor => N, AddrMode::ColMayor => K };
-    let cstride = match clayout { AddrMode::RowMayor => N, AddrMode::ColMayor => M };
+    let astride = match alayout { AddrMode::RowMajor => K, AddrMode::ColMajor => M };
+    let bstride = match blayout { AddrMode::RowMajor => N, AddrMode::ColMajor => K };
+    let cstride = match clayout { AddrMode::RowMajor => N, AddrMode::ColMajor => M };
 
     // Produce data set on host
     let a_cpu_buffer = alloc_cpu(sizeof[f16]() * (K * M) as i64);
