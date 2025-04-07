@@ -173,12 +173,16 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
 
             for global_k_sliced in range_step(0, k, tile_size_k * k_shared_tiles) { //TODO: That's l.295 in the sample, and should be unrolled!
                 //Populate shared tensors
-                let rows_per_warp = wave_size / (k_shared_tiles * 2);
-                let lanes_per_row = tile_size_k / 8 * k_shared_tiles;
+                //TODO: assumes a_element_type == b_element_type;
+                let elements_per_operation = (sizeof[i32]() as i32 * 4) / (sizeof[a_element_type]() as i32);
+                let operations_per_lane = (k_shared_tiles * tile_size_k) / elements_per_operation;
+                let lanes_per_step = (wave_size * 4) / operations_per_lane;
+                let lanes_per_warp = wave_size / operations_per_lane;
+
                 if (warp_id < 4) { //tid 0 - 127
-                    for y_index in unroll_step(0, 128, rows_per_warp * 4) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
-                        let local_y = y_index + warp_id * rows_per_warp + (lane_id / lanes_per_row);
-                        let local_k = (lane_id % lanes_per_row) * 8;
+                    for y_index in unroll_step(0, block_size_y, lanes_per_step) {
+                        let local_y = y_index + warp_id * lanes_per_warp + (lane_id / operations_per_lane);
+                        let local_k = (lane_id % operations_per_lane) * elements_per_operation;
 
                         let global_y = block_y + local_y;
                         let global_k = global_k_sliced + local_k;
@@ -188,9 +192,9 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
                         *target_ptr = *src_ptr;
                     }
                 } else { //tid 128 - 255
-                    for x_index in unroll_step(0, 128, rows_per_warp * 4) { //TODO: this relies on the specific size of the block, and probably on the block geometry.
-                        let local_x = x_index + (warp_id % 4) * rows_per_warp + (lane_id / lanes_per_row);
-                        let local_k = (lane_id % lanes_per_row) * 8;
+                    for x_index in unroll_step(0, block_size_x, lanes_per_step) {
+                        let local_x = x_index + (warp_id % 4) * lanes_per_warp + (lane_id / operations_per_lane);
+                        let local_k = (lane_id % operations_per_lane) * elements_per_operation;
 
                         let global_x = block_x + local_x;
                         let global_k = global_k_sliced + local_k;
