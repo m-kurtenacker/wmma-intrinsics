@@ -28,7 +28,6 @@
 
 // This should never change™.
 static wave_size = 32;
-static device_mp_count = 20; //TODO: Turn that into an intrinsic or something?
 
 struct WMMAOperations [mat_a_type, mat_b_type, acc_type] {
     load_a : fn (Tensor[a_element_type]) -> mat_a_type,
