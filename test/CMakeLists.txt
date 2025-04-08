@@ -96,7 +96,7 @@ elseif (BACKEND STREQUAL "levelzero")
     add_wmma_test(NAME large  FILES common.art operations/lzero_blas.art layouts/large.art)
     target_link_libraries(large ${BLAS_LIBRARIES})
 
-    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art layouts/medium.art)
+    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art layouts/large.art)
     target_link_libraries(large_tiled ${BLAS_LIBRARIES})
 
     add_wmma_test(NAME large_ref  FILES common.art operations/lzero_blocked.art layouts/large.art)
