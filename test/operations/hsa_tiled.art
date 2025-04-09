@@ -9,7 +9,7 @@ static tile_size_k = 16;
 static mut device_mp_count : i32;
 
 fn @get_accelerator () {
-    device_mp_count = runtime_device_nodes(runtime_device(1, 0));
+    device_mp_count = runtime_device_nodes(runtime_device(3, 1));
     amdgpu_hsa_accelerator(1)
 }
 
