@@ -208,7 +208,7 @@ fn matrix_multiply_acc_prgmod [mat_a_type, mat_b_type, acc_type] (acc : Accelera
 
                 for tile_x in unroll(0, warp_x_tiles /* = 2 */) {
                     let local_x = tile_x * tile_size_x;
-                    let block_x = warp_x + local_x;
+                    //let block_x = warp_x + local_x;
 
                     //let b_fragment_tensor = sub_tensor(b_local_tensor, block_x, local_k, tile_size_x, tile_size_k);
                     let b_fragment_tensor = sub_tensor(b_warp_tensor, local_x, local_k, tile_size_x, tile_size_k);
@@ -216,7 +216,7 @@ fn matrix_multiply_acc_prgmod [mat_a_type, mat_b_type, acc_type] (acc : Accelera
 
                     for tile_y in unroll(0, warp_y_tiles /* = 4 */) {
                         let local_y = tile_y * tile_size_y;
-                        let block_y = warp_y + local_y;
+                        //let block_y = warp_y + local_y;
 
                         let acc_fragment = *acc_fragments(tile_x)(tile_y);
 
@@ -342,10 +342,10 @@ fn matrix_multiply_acc_prgmod [mat_a_type, mat_b_type, acc_type] (acc : Accelera
                 let r3 = av * bv3;
 
                 rv += simd[
-                    r0(0) + r0(1) + r0(2) + r0(3),
-                    r1(0) + r1(1) + r1(2) + r1(3),
-                    r2(0) + r2(1) + r2(2) + r2(3),
-                    r3(0) + r3(1) + r3(2) + r3(3)];
+                    (r0(0) + r0(1) + r0(2) + r0(3)) as c_element_type,
+                    (r1(0) + r1(1) + r1(2) + r1(3)) as c_element_type,
+                    (r2(0) + r2(1) + r2(2) + r2(3)) as c_element_type,
+                    (r3(0) + r3(1) + r3(2) + r3(3)) as c_element_type];
             }
 
             *bitcast[&mut simd[c_element_type * 4]](&d_warp_tensor.data(addr_tensor(x, y, d_warp_tensor))) = rv;
