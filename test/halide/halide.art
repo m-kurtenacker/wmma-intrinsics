@@ -1,0 +1,186 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+
+static N = 1024;
+static M = 1024;
+static K = 1024;
+
+static alayout = AddrMode::RowMajor;
+static blayout = AddrMode::RowMajor;
+static clayout = AddrMode::RowMajor;
+
+static tile_size_x = 0;
+static tile_size_y = 0;
+static tile_size_k = 0;
+static device_mp_count = 0;
+
+type a_element_type=f32;
+type b_element_type=f32;
+type c_element_type=f32;
+
+
+static debug_prints = false;
+
+#[import(cc = "C", name = "halide_alloc")] fn halide_alloc(i32, i32) -> &mut [i8];
+#[import(cc = "C", name = "halide_copy_from_buffer")] fn halide_copy_from_buffer(_src : &[i8], _dst : &mut [i8]) -> ();
+#[import(cc = "C", name = "halide_copy_to_buffer")] fn halide_copy_to_buffer(_src : &[i8], _dst : &mut [i8]) -> ();
+#[import(cc = "C", name = "halide_matmul")] fn halide_matmul(_a : &[i8], _b : &[i8], _c : &[i8], _d : &mut [i8]) -> ();
+
+fn construct_halide_buffer(size_x : i32, size_y : i32) -> Buffer {
+    let data = halide_alloc(size_x, size_y);
+
+    Buffer {
+        data = data,
+        device = 1,
+        size = 0
+    }
+}
+
+fn halide_copy(src : Buffer, dst : Buffer) {
+    if src.device == 1 {
+        halide_copy_from_buffer(src.data, dst.data);
+    } else {
+        halide_copy_to_buffer(src.data, dst.data);
+    }
+}
+
+fn halide_accelerated_matmul(a_tensor : Tensor[f32], b_tensor : Tensor[f32], c_tensor : Tensor[f32], d_tensor : Tensor[f32]) -> () {
+    halide_matmul(bitcast[&[i8]](a_tensor.data), bitcast[&[i8]](b_tensor.data), bitcast[&[i8]](c_tensor.data), bitcast[&mut [i8]](d_tensor.data));
+}
+
+#[export]
+fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
+    let astride = match alayout { AddrMode::RowMajor => K, AddrMode::ColMajor => M };
+    let bstride = match blayout { AddrMode::RowMajor => N, AddrMode::ColMajor => K };
+    let cstride = match clayout { AddrMode::RowMajor => N, AddrMode::ColMajor => M };
+
+    // Produce data set on host
+    let a_cpu_buffer = alloc_cpu(sizeof[f32]() * (K * M) as i64);
+    let b_cpu_buffer = alloc_cpu(sizeof[f32]() * (N * K) as i64);
+    let c_cpu_buffer = alloc_cpu(sizeof[f32]() * (N * M) as i64);
+    let d_cpu_buffer = alloc_cpu(sizeof[f32]() * (N * M) as i64);
+    let r_cpu_buffer = alloc_cpu(sizeof[f32]() * (N * M) as i64);
+
+    let a_cpu = bitcast[&mut [f32]](a_cpu_buffer.data);
+    let b_cpu = bitcast[&mut [f32]](b_cpu_buffer.data);
+    let c_cpu = bitcast[&mut [f32]](c_cpu_buffer.data);
+    let d_cpu = bitcast[&mut [f32]](d_cpu_buffer.data);
+    let r_cpu = bitcast[&mut [f32]](r_cpu_buffer.data);
+
+    for n in range(0, M * K) { a_cpu(n) = random_val_f32(); }
+    for n in range(0, N * K) { b_cpu(n) = random_val_f32(); }
+    for n in range(0, N * M) { c_cpu(n) = random_val_f32(); d_cpu(n) = 0 : f32; r_cpu(n) = 0 : f32; }
+
+    // Copy data to device
+    let a_cuda_buffer = construct_halide_buffer(K, M);
+    let b_cuda_buffer = construct_halide_buffer(N, K);
+    let c_cuda_buffer = construct_halide_buffer(N, M);
+    let d_cuda_buffer = construct_halide_buffer(N, M);
+
+    halide_copy(a_cpu_buffer, a_cuda_buffer);
+    halide_copy(b_cpu_buffer, b_cuda_buffer);
+    halide_copy(c_cpu_buffer, c_cuda_buffer);
+
+    let a_global_tensor = Tensor[f32] { data = bitcast[&mut[f32]](a_cuda_buffer.data), x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_global_tensor = Tensor[f32] { data = bitcast[&mut[f32]](b_cuda_buffer.data), x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_global_tensor = Tensor[f32] { data = bitcast[&mut[f32]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let d_global_tensor = Tensor[f32] { data = bitcast[&mut[f32]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+
+    for _i in unroll(0, 10) {
+        halide_accelerated_matmul(a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    }
+
+    // NVVM multiply tensors
+    print_string("NVVM multiplication:\n");
+    let acc_start = get_micro_time();
+
+    for _i in unroll(0, 20) {
+        halide_accelerated_matmul(a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    }
+
+    let acc_end = get_micro_time();
+    print_string("Done!\n");
+    if (acc_end - acc_start > 0) {
+        print_string("Took ");
+        print_i64((acc_end - acc_start) / 20);
+        print_string("µs\n");
+    }
+
+    // Fetch result
+    halide_copy(d_cuda_buffer, d_cpu_buffer);
+
+    let a_tensor = Tensor[f32] { data = a_cpu, x_dim = K, y_dim = M, addr_mode = alayout, stride = astride };
+    let b_tensor = Tensor[f32] { data = b_cpu, x_dim = N, y_dim = K, addr_mode = blayout, stride = bstride };
+    let c_tensor = Tensor[f32] { data = c_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+    let r_tensor = Tensor[f32] { data = r_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+
+    // Ref implementation
+    print_string("CPU multiplication:\n");
+    let cpu_start = get_micro_time();
+    matrix_multiply_naive(a_tensor, b_tensor, c_tensor, r_tensor);
+    let cpu_end = get_micro_time();
+    print_string("Done!\n");
+    if (cpu_end - cpu_start > 0) {
+        print_string("Took ");
+        print_i64(cpu_end - cpu_start);
+        print_string("µs\n");
+    }
+
+    // Compare results
+    let d_tensor = Tensor[f32] { data = d_cpu, x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
+
+    if (debug_prints) {
+        print_string("NVVM result:\n");
+        print_matrix[f32](d_tensor);
+        print_string("\n");
+        print_string("CPU result:\n");
+        print_matrix[f32](r_tensor);
+        print_string("\n");
+    }
+
+    for x in range(0, d_tensor.x_dim) {
+        for y in range(0, d_tensor.y_dim) {
+            r_tensor.data(addr_tensor(x, y, r_tensor)) = r_tensor.data(addr_tensor(x, y, r_tensor)) - d_tensor.data(addr_tensor(x, y, d_tensor));
+        }
+    }
+
+    if (debug_prints) {
+        print_string("Difference:\n");
+        print_matrix[f32](r_tensor);
+        print_string("\n");
+    }
+
+    let mut max_error = 0 : f32;
+    for x in range(0, N * M) {
+        max_error = cpu_intrinsics.fmaxf(max_error, cpu_intrinsics.fabsf(r_cpu(x)));
+    }
+
+    print_string("Max error: ");
+    print_f32(max_error);
+    print_string("\n");
+
+    if (max_error < (0.01 * K as f32)) {
+        0
+    } else {
+        1
+    }
+}
