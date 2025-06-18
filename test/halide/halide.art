@@ -43,7 +43,7 @@ static debug_prints = false;
 #[import(cc = "C", name = "halide_alloc")] fn halide_alloc(i32, i32) -> &mut [i8];
 #[import(cc = "C", name = "halide_copy_from_buffer")] fn halide_copy_from_buffer(_src : &[i8], _dst : &mut [i8]) -> ();
 #[import(cc = "C", name = "halide_copy_to_buffer")] fn halide_copy_to_buffer(_src : &[i8], _dst : &mut [i8]) -> ();
-#[import(cc = "C", name = "halide_matmul")] fn halide_matmul(_a : &[i8], _b : &[i8], _c : &[i8], _d : &mut [i8]) -> ();
+#[import(cc = "C", name = "halide_matmul")] fn halide_matmul(_a : &[i8], _b : &[i8], _c : &[i8], _d : &mut [i8]) -> f64;
 
 fn construct_halide_buffer(size_x : i32, size_y : i32) -> Buffer {
     let data = halide_alloc(size_x, size_y);
@@ -63,8 +63,8 @@ fn halide_copy(src : Buffer, dst : Buffer) {
     }
 }
 
-fn halide_accelerated_matmul(a_tensor : Tensor[f32], b_tensor : Tensor[f32], c_tensor : Tensor[f32], d_tensor : Tensor[f32]) -> () {
-    halide_matmul(bitcast[&[i8]](a_tensor.data), bitcast[&[i8]](b_tensor.data), bitcast[&[i8]](c_tensor.data), bitcast[&mut [i8]](d_tensor.data));
+fn halide_accelerated_matmul(a_tensor : Tensor[f32], b_tensor : Tensor[f32], c_tensor : Tensor[f32], d_tensor : Tensor[f32]) -> f64 {
+    halide_matmul(bitcast[&[i8]](a_tensor.data), bitcast[&[i8]](b_tensor.data), bitcast[&[i8]](c_tensor.data), bitcast[&mut [i8]](d_tensor.data))
 }
 
 #[export]
@@ -105,23 +105,33 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let c_global_tensor = Tensor[f32] { data = bitcast[&mut[f32]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
     let d_global_tensor = Tensor[f32] { data = bitcast[&mut[f32]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
-    for _i in unroll(0, 10) {
+    print_string("Warmup:\n");
+
+    for i in unroll(0, 10) {
         halide_accelerated_matmul(a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+        print_string("\r");
+        print_i32(i + 1);
+        print_flush();
     }
+    print_string("\n");
 
     // NVVM multiply tensors
     print_string("NVVM multiplication:\n");
-    let acc_start = get_micro_time();
+    //let acc_start = get_micro_time();
+    let mut runtime = 0 : f64;
 
-    for _i in unroll(0, 20) {
-        halide_accelerated_matmul(a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    for i in unroll(0, 20) {
+        runtime += halide_accelerated_matmul(a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+        print_string("\r");
+        print_i32(i + 1);
+        print_flush();
     }
+    print_string("\n");
 
-    let acc_end = get_micro_time();
     print_string("Done!\n");
-    if (acc_end - acc_start > 0) {
+    if (runtime > 0) {
         print_string("Took ");
-        print_i64((acc_end - acc_start) / 20);
+        print_i64((runtime as i64) / 20);
         print_string("µs\n");
     }
 
