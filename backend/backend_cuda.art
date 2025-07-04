@@ -1,0 +1,115 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+type_ext cuda_acc_datatype   = { "wmma::fragment<wmma::accumulator, 16, 16, 16, half>" };
+type_ext cuda_mat_a_datatype = { "wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major>" };
+type_ext cuda_mat_b_datatype = { "wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::col_major>" };
+
+#[import(cc = "C", name = "abort")] fn abort[T]() -> T;
+
+#[import(cc = "C", name = "cuda_load_matrix_sync_a")] fn cuda_wmma_load_sync_a [T] (_frag : &T, _data : &f16, _stride : i32) -> ();
+#[import(cc = "C", name = "cuda_load_matrix_sync_b")] fn cuda_wmma_load_sync_b [T] (_frag : &T, _data : &f16, _stride : i32) -> ();
+#[import(cc = "C", name = "cuda_load_matrix_sync_c")] fn cuda_wmma_load_sync_c [T] (_frag : T, _data : &f16, _stride : i32) -> (); // layout == wmma::mem_row_major or wmma::mem_col_major
+
+#[import(cc = "C", name = "cuda_mma_sync")] fn cuda_mma_sync (_d : &cuda_acc_datatype, _a : cuda_mat_a_datatype, _b : cuda_mat_b_datatype, _c : cuda_acc_datatype) -> ();
+
+#[import(cc = "C", name = "cuda_store_matrix_sync")] fn cuda_wmma_store_sync (_data : &mut f16, _frag : cuda_acc_datatype,  _stride : i32) -> ();
+
+fn @cuda_wmma_expand (a_fragment : cuda_mat_a_datatype, b_fragment : cuda_mat_b_datatype, c_fragment : cuda_acc_datatype) -> cuda_acc_datatype {
+    let mut d_fragment : cuda_acc_datatype;
+    cuda_mma_sync(&d_fragment, a_fragment, b_fragment, c_fragment);
+    d_fragment
+}
+
+fn @cuda_wmma_load_a_expand(fragment_tensor : Tensor[a_element_type]) -> cuda_mat_a_datatype {
+    let cuda_data = bitcast[&f16](fragment_tensor.data);
+
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMajor => {
+            let mut a_fragment : cuda_mat_a_datatype;
+            cuda_wmma_load_sync_a(&a_fragment, cuda_data, fragment_tensor.stride);
+            a_fragment
+        },
+        AddrMode::ColMajor =>
+            //unsupported
+            abort[cuda_mat_a_datatype]()
+    }
+}
+
+fn @cuda_wmma_load_b_expand(fragment_tensor : Tensor[b_element_type]) -> cuda_mat_b_datatype {
+    let cuda_data = bitcast[&f16](fragment_tensor.data);
+
+    match fragment_tensor.addr_mode {
+        AddrMode::ColMajor => {
+            let mut b_fragment : cuda_mat_b_datatype;
+            cuda_wmma_load_sync_b(&b_fragment, cuda_data, fragment_tensor.stride);
+            b_fragment
+        },
+        AddrMode::RowMajor =>
+            //unsupported
+            abort[cuda_mat_b_datatype]()
+    }
+}
+
+fn @cuda_wmma_load_c_expand(fragment_tensor : Tensor[c_element_type]) -> cuda_acc_datatype {
+    let cuda_data = bitcast[&f16](fragment_tensor.data);
+
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMajor => {
+            let mut c_fragment : cuda_acc_datatype;
+            cuda_wmma_load_sync_c(&c_fragment, cuda_data, fragment_tensor.stride);
+            c_fragment
+        },
+        AddrMode::ColMajor =>
+            //unsupported
+            abort[cuda_acc_datatype]()
+    }
+}
+
+fn @cuda_wmma_store_d_expand (d_fragment_tensor : Tensor[c_element_type], acc_fragment : cuda_acc_datatype) -> () {
+    let d_cuda = bitcast[&mut f16](d_fragment_tensor.data);
+
+    match d_fragment_tensor.addr_mode {
+        AddrMode::RowMajor =>
+            cuda_wmma_store_sync(d_cuda, acc_fragment, d_fragment_tensor.stride),
+        AddrMode::ColMajor =>
+            //unsupported
+            abort[()]()
+    }
+}
+
+static CUDAWMMAOperations = WMMAOperations [cuda_mat_a_datatype, cuda_mat_b_datatype, cuda_acc_datatype] {
+    load_a = @|fragment_tensor| {
+        cuda_wmma_load_a_expand(fragment_tensor)
+    },
+    load_b = @|fragment_tensor| {
+        cuda_wmma_load_b_expand(fragment_tensor)
+    },
+    load_c = @|fragment_tensor| {
+        cuda_wmma_load_c_expand(fragment_tensor)
+    },
+    wmma = @|a_fragment, a_layout, b_fragment, b_layout, acc_fragment, _c_layout| {
+        cuda_wmma_expand (a_fragment, b_fragment, acc_fragment)
+    },
+    store_d = @|fragment_tensor, acc_fragment| {
+        cuda_wmma_store_d_expand (fragment_tensor, acc_fragment);
+    }
+};
