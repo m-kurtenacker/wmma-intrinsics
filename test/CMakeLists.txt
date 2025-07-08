@@ -70,10 +70,6 @@ elseif (BACKEND STREQUAL "cuda")
 
     add_wmma_test(NAME large_ref  FILES common.art operations/cuda_blocked.art layouts/large.art)
     target_link_libraries(large_ref ${BLAS_LIBRARIES})
-
-    #Add an include to load the wmma shim. We can't call by reference, so this shim allows calling wmma functions by pointer instead.
-    add_custom_target(fix_large_tiled ALL sed -i \"s/\#include <cuda_fp16.h>$$/\#include <cuda_fp16.h> \#fixed\\n\#include \\\"cuda_shim.cu\\\"/\" large_tiled.cu DEPENDS large_tiled)
-    add_custom_target(fix_large_ref ALL sed -i \"s/\#include <cuda_fp16.h>$$/\#include <cuda_fp16.h> \#fixed\\n\#include \\\"cuda_shim.cu\\\"/\" large_ref.cu DEPENDS large_ref)
 elseif (BACKEND STREQUAL "amdgpu_hsa")
     add_wmma_test(NAME simple FILES common.art operations/hsa_ref.art layouts/simple.art)
     add_wmma_test(NAME layout FILES common.art operations/hsa_ref.art layouts/layout.art)

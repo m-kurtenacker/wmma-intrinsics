@@ -15,9 +15,9 @@ fn @get_accelerator () {
 
 fn @accelerated_matmul (cuda : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     if (M % 128 == 0 && N % 128 == 0) {
-        matrix_multiply_acc_tiled [cuda_mat_a_datatype, cuda_mat_b_datatype, cuda_acc_datatype] (cuda, CUDAWMMAOperations, a, b, c, d);
+        matrix_multiply_acc_tiled [cuda_mat_datatype, cuda_mat_datatype, cuda_acc_datatype] (cuda, CUDAWMMAOperations, a, b, c, d);
     } else {
-        matrix_multiply_acc_wmma [cuda_mat_a_datatype, cuda_mat_b_datatype, cuda_acc_datatype] (cuda, CUDAWMMAOperations, a, b, c, d);
+        matrix_multiply_acc_wmma [cuda_mat_datatype, cuda_mat_datatype, cuda_acc_datatype] (cuda, CUDAWMMAOperations, a, b, c, d);
     }
 }
 

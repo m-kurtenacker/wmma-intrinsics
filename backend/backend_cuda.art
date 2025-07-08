@@ -19,84 +19,107 @@
  *       (V      )
  */
 
-type_ext cuda_acc_datatype   = { "wmma::fragment<wmma::accumulator, 16, 16, 16, half>" };
-type_ext cuda_mat_a_datatype = { "wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major>" };
-type_ext cuda_mat_b_datatype = { "wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::col_major>" };
+type cuda_acc_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+type cuda_mat_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
 
-#[import(cc = "C", name = "abort")] fn abort[T]() -> T;
+#[import(cc = "device", name = "__hmma_m16n16k16_ld_a")] fn cuda_wmma_load_a (_frag : &i32, _data : &i32, _stride : u32, _mode: i32) -> ();
+#[import(cc = "device", name = "__hmma_m16n16k16_ld_b")] fn cuda_wmma_load_b (_frag : &i32, _data : &i32, _stride : u32, _mode: i32) -> ();
+#[import(cc = "device", name = "__hmma_m16n16k16_ld_c_f16")] fn cuda_wmma_load_c (_frag : &i32, _data : &i32, _stride : u32, _mode: i32) -> ();
+#[import(cc = "device", name = "__hmma_m16n16k16_st_c_f16")] fn cuda_wmma_store_d (_data : &i32, _frag : &i32, _stride : u32, _mode: i32) -> ();
 
-#[import(cc = "C", name = "cuda_load_matrix_sync_a")] fn cuda_wmma_load_sync_a [T] (_frag : &T, _data : &f16, _stride : i32) -> ();
-#[import(cc = "C", name = "cuda_load_matrix_sync_b")] fn cuda_wmma_load_sync_b [T] (_frag : &T, _data : &f16, _stride : i32) -> ();
-#[import(cc = "C", name = "cuda_load_matrix_sync_c")] fn cuda_wmma_load_sync_c [T] (_frag : T, _data : &f16, _stride : i32) -> (); // layout == wmma::mem_row_major or wmma::mem_col_major
+#[import(cc = "device", name = "__hmma_m16n16k16_mma_f16f16")] fn cuda_wmma_mma (_frag_d : &i32, _frag_a : &i32, _frag_b : &i32, _frag_c : &i32, _mode: i32, _satfinite: i32) -> ();
 
-#[import(cc = "C", name = "cuda_mma_sync")] fn cuda_mma_sync (_d : &cuda_acc_datatype, _a : cuda_mat_a_datatype, _b : cuda_mat_b_datatype, _c : cuda_acc_datatype) -> ();
 
-#[import(cc = "C", name = "cuda_store_matrix_sync")] fn cuda_wmma_store_sync (_data : &mut f16, _frag : cuda_acc_datatype,  _stride : i32) -> ();
-
-fn @cuda_wmma_expand (a_fragment : cuda_mat_a_datatype, b_fragment : cuda_mat_b_datatype, c_fragment : cuda_acc_datatype) -> cuda_acc_datatype {
-    let mut d_fragment : cuda_acc_datatype;
-    cuda_mma_sync(&d_fragment, a_fragment, b_fragment, c_fragment);
-    d_fragment
-}
-
-fn @cuda_wmma_load_a_expand(fragment_tensor : Tensor[a_element_type]) -> cuda_mat_a_datatype {
-    let cuda_data = bitcast[&f16](fragment_tensor.data);
-
-    match fragment_tensor.addr_mode {
-        AddrMode::RowMajor => {
-            let mut a_fragment : cuda_mat_a_datatype;
-            cuda_wmma_load_sync_a(&a_fragment, cuda_data, fragment_tensor.stride);
-            a_fragment
+fn @cuda_wmma_expand (a_fragment : nvvm_mat_datatype, b_fragment : nvvm_mat_datatype, c_fragment : nvvm_acc_datatype, a_mode : AddrMode, b_mode : AddrMode) -> nvvm_acc_datatype {
+    match (a_mode, b_mode) {
+        (AddrMode::RowMajor, AddrMode::RowMajor) => {
+            let mut d_fragment : cuda_acc_datatype;
+            cuda_wmma_mma(bitcast[&i32](&d_fragment), bitcast[&i32](&a_fragment), bitcast[&i32](&b_fragment), bitcast[&i32](&c_fragment), 0, 0);
+            d_fragment
         },
-        AddrMode::ColMajor =>
-            //unsupported
-            abort[cuda_mat_a_datatype]()
+        (AddrMode::ColMajor, AddrMode::RowMajor) => {
+            let mut d_fragment : cuda_acc_datatype;
+            cuda_wmma_mma(bitcast[&i32](&d_fragment), bitcast[&i32](&a_fragment), bitcast[&i32](&b_fragment), bitcast[&i32](&c_fragment), 2, 0);
+            d_fragment
+        },
+        (AddrMode::RowMajor, AddrMode::ColMajor) => {
+            let mut d_fragment : cuda_acc_datatype;
+            cuda_wmma_mma(bitcast[&i32](&d_fragment), bitcast[&i32](&a_fragment), bitcast[&i32](&b_fragment), bitcast[&i32](&c_fragment), 1, 0);
+            d_fragment
+        },
+        (AddrMode::ColMajor, AddrMode::ColMajor) => {
+            let mut d_fragment : cuda_acc_datatype;
+            cuda_wmma_mma(bitcast[&i32](&d_fragment), bitcast[&i32](&a_fragment), bitcast[&i32](&b_fragment), bitcast[&i32](&c_fragment), 3, 0);
+            d_fragment
+        }
     }
 }
 
-fn @cuda_wmma_load_b_expand(fragment_tensor : Tensor[b_element_type]) -> cuda_mat_b_datatype {
-    let cuda_data = bitcast[&f16](fragment_tensor.data);
+fn @cuda_wmma_load_a_expand(fragment_tensor : Tensor[a_element_type]) -> cuda_mat_datatype {
+    let cuda_data = bitcast[&i32](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
-        AddrMode::ColMajor => {
-            let mut b_fragment : cuda_mat_b_datatype;
-            cuda_wmma_load_sync_b(&b_fragment, cuda_data, fragment_tensor.stride);
-            b_fragment
+        AddrMode::RowMajor => {
+            let mut fragment : cuda_mat_datatype;
+            cuda_wmma_load_a(bitcast[&i32](&fragment), cuda_data, fragment_tensor.stride as u32, 0);
+            fragment
         },
-        AddrMode::RowMajor =>
-            //unsupported
-            abort[cuda_mat_b_datatype]()
+        AddrMode::ColMajor => {
+            let mut fragment : cuda_mat_datatype;
+            cuda_wmma_load_a(bitcast[&i32](&fragment), cuda_data, fragment_tensor.stride as u32, 1);
+            fragment
+        }
+    }
+}
+
+fn @cuda_wmma_load_b_expand(fragment_tensor : Tensor[b_element_type]) -> cuda_mat_datatype {
+    let cuda_data = bitcast[&i32](fragment_tensor.data);
+
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMajor => {
+            let mut fragment : cuda_mat_datatype;
+            cuda_wmma_load_b(bitcast[&i32](&fragment), cuda_data, fragment_tensor.stride as u32, 0);
+            fragment
+        },
+        AddrMode::ColMajor => {
+            let mut fragment : cuda_mat_datatype;
+            cuda_wmma_load_b(bitcast[&i32](&fragment), cuda_data, fragment_tensor.stride as u32, 1);
+            fragment
+        }
     }
 }
 
 fn @cuda_wmma_load_c_expand(fragment_tensor : Tensor[c_element_type]) -> cuda_acc_datatype {
-    let cuda_data = bitcast[&f16](fragment_tensor.data);
+    let cuda_data = bitcast[&i32](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
         AddrMode::RowMajor => {
-            let mut c_fragment : cuda_acc_datatype;
-            cuda_wmma_load_sync_c(&c_fragment, cuda_data, fragment_tensor.stride);
-            c_fragment
+            let mut fragment : cuda_acc_datatype;
+            cuda_wmma_load_c(bitcast[&i32](&fragment), cuda_data, fragment_tensor.stride as u32, 0);
+            fragment
         },
-        AddrMode::ColMajor =>
-            //unsupported
-            abort[cuda_acc_datatype]()
+        AddrMode::ColMajor => {
+            let mut fragment : cuda_acc_datatype;
+            cuda_wmma_load_c(bitcast[&i32](&fragment), cuda_data, fragment_tensor.stride as u32, 1);
+            fragment
+        }
     }
 }
 
-fn @cuda_wmma_store_d_expand (d_fragment_tensor : Tensor[c_element_type], acc_fragment : cuda_acc_datatype) -> () {
-    let d_cuda = bitcast[&mut f16](d_fragment_tensor.data);
+fn @cuda_wmma_store_d_expand(fragment_tensor : Tensor[c_element_type], acc_fragment : cuda_acc_datatype) -> () {
+    let cuda_data = bitcast[&i32](fragment_tensor.data);
 
-    match d_fragment_tensor.addr_mode {
-        AddrMode::RowMajor =>
-            cuda_wmma_store_sync(d_cuda, acc_fragment, d_fragment_tensor.stride),
-        AddrMode::ColMajor =>
-            //unsupported
-            abort[()]()
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMajor => {
+            cuda_wmma_store_d(cuda_data, bitcast[&i32](&acc_fragment), fragment_tensor.stride as u32, 0);
+        },
+        AddrMode::ColMajor => {
+            cuda_wmma_store_d(cuda_data, bitcast[&i32](&acc_fragment), fragment_tensor.stride as u32, 1);
+        }
     }
 }
 
-static CUDAWMMAOperations = WMMAOperations [cuda_mat_a_datatype, cuda_mat_b_datatype, cuda_acc_datatype] {
+static CUDAWMMAOperations = WMMAOperations [cuda_mat_datatype, cuda_mat_datatype, cuda_acc_datatype] {
     load_a = @|fragment_tensor| {
         cuda_wmma_load_a_expand(fragment_tensor)
     },
@@ -107,7 +130,7 @@ static CUDAWMMAOperations = WMMAOperations [cuda_mat_a_datatype, cuda_mat_b_data
         cuda_wmma_load_c_expand(fragment_tensor)
     },
     wmma = @|a_fragment, a_layout, b_fragment, b_layout, acc_fragment, _c_layout| {
-        cuda_wmma_expand (a_fragment, b_fragment, acc_fragment)
+        cuda_wmma_expand (a_fragment, b_fragment, acc_fragment, a_layout, b_layout)
     },
     store_d = @|fragment_tensor, acc_fragment| {
         cuda_wmma_store_d_expand (fragment_tensor, acc_fragment);
