@@ -27,6 +27,15 @@ static alayout = AddrMode::RowMajor; //Must be equal for oneapi hgemm
 static blayout = AddrMode::RowMajor;
 static clayout = AddrMode::RowMajor;
 
+//Needed for compatibility
+type a_element_type = f16;
+type b_element_type = f16;
+type c_element_type = f16;
+static tile_size_x = 16;
+static tile_size_y = 16;
+static tile_size_k = 16;
+static device_mp_count = 1;
+
 static debug_prints = false;
 
 #[export]
@@ -104,10 +113,10 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     // Compare results
     if (debug_prints) {
         print_string("NVVM result:\n");
-        print_matrix(d_tensor);
+        print_matrix[f16](d_tensor);
         print_string("\n");
         print_string("CPU result:\n");
-        print_matrix(r_tensor);
+        print_matrix[f16](r_tensor);
         print_string("\n");
     }
 
@@ -119,7 +128,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
 
     if (debug_prints) {
         print_string("Difference:\n");
-        print_matrix(r_tensor);
+        print_matrix[f16](r_tensor);
         print_string("\n");
     }
 
