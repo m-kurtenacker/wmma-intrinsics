@@ -64,12 +64,12 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     // NVVM multiply tensors
     print_string("NVVM multiplication:\n");
     acc.sync();
-    let acc_start = get_kernel_time();
+    let acc_start = accelerator_time();
 
     accelerated_matmul(acc, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
 
     acc.sync();
-    let acc_end = get_kernel_time();
+    let acc_end = accelerator_time();
     print_string("Done!\n");
     if (acc_end - acc_start > 0) {
         print_string("Took ");
