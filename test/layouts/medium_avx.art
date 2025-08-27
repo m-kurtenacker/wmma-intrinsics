@@ -1,0 +1,28 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+static N = 1024;
+static M = 1024;
+static K = 1024;
+
+static alayout = AddrMode::RowMajor;
+static blayout = AddrMode::RowMajor;
+static clayout = AddrMode::RowMajor;

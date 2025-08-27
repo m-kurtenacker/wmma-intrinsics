@@ -1,0 +1,93 @@
+type a_element_type = f64;
+type b_element_type = f64;
+type c_element_type = f64;
+
+static tile_size_x = 0;
+static tile_size_y = 0;
+static tile_size_k = 0;
+
+static mut device_mp_count : i32;
+
+static simd_lanes = 4;
+#[import(cc = "device", name = "llvm.fma.v4f64")] fn avx_fma(_a: simd[f64 * 4], _b: simd[f64 * 4], _c: simd[f64 * 4]) -> simd[f64 * 4];
+#[import(cc = "C", name = "aligned_alloc")] fn aligned_alloc(_alignment: i64, _size: i64) -> &mut [i8];
+
+static accelerator_time = get_micro_time;
+
+fn @get_accelerator () {
+    device_mp_count = 20;
+
+    fn @local_exec(body : fn(WorkItem) -> ()) = @|grid : (i32, i32, i32), _block : (i32, i32, i32)| {
+        for x in range(0, grid.0) {
+            for y in range(0, grid.1) {
+                for z in range(0, grid.2) {
+                    @body(WorkItem {
+                        tidx  = @|| { x },
+                        tidy  = @|| { y },
+                        tidz  = @|| { z },
+                        bidx  = @|| { x },
+                        bidy  = @|| { y },
+                        bidz  = @|| { z },
+                        gidx  = @|| { x },
+                        gidy  = @|| { y },
+                        gidz  = @|| { z },
+                        bdimx = @|| { 1 },
+                        bdimy = @|| { 1 },
+                        bdimz = @|| { 1 },
+                        gdimx = @|| { grid.0 },
+                        gdimy = @|| { grid.1 },
+                        gdimz = @|| { grid.2 },
+                        nblkx = @|| { grid.0 },
+                        nblky = @|| { grid.1 },
+                        nblkz = @|| { grid.2 },
+                    });
+                }
+            }
+        }
+    };
+
+    fn @alloc_align(size: i64) = Buffer {
+        data = aligned_alloc(32, size),
+        size = size,
+        device = 0
+    };
+
+
+    Accelerator {
+        exec = local_exec,
+        sync = @|| { },
+        alloc = alloc_align,
+        alloc_unified = alloc_cpu,
+        barrier = @|| { },
+    }
+}
+
+fn @accelerated_matmul (_cpu : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    for y in range(0, m) { // y = i in matmul-avx.cpp
+        for x in range_step(0, n, simd_lanes) { // x = j in matmul-avx.cpp
+            let cv = *bitcast[&simd[f64 * simd_lanes]](&c.data(addr_tensor(x, y, c)));
+
+            let mut rv = cv;
+
+            for i in range(0, k) {
+                let avl = a.data(addr_tensor(i, y, a));
+                let av = simd[avl, avl, avl, avl] : simd[f64 * 4];
+
+                let bv = *bitcast[&simd[f64 * simd_lanes]](&b.data(addr_tensor(x, i, b)));
+
+                rv = avx_fma(av, bv, rv);
+            }
+
+            *bitcast[&mut simd[f64 * simd_lanes]](&d.data(addr_tensor(x, y, d))) = rv;
+        }
+    }
+}
+
+fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    matrix_multiply_naive(a, b, c, d);
+}
