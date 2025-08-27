@@ -69,7 +69,24 @@ fn matrix_multiply_blas (a : Tensor[a_element_type], b : Tensor[b_element_type],
         convert_tensor[c_element_type](c)
     };
 
-    cblas_gemm[f32](CBLAS_LAYOUT::CblasRowMajor, CBLAS_TRANSPOSE::CblasNoTrans, CBLAS_TRANSPOSE::CblasTrans, m, n, k, 1.0, bitcast[&mut [f32]](a_f32.data), a_f32.stride as i64, bitcast[&mut [f32]](b_f32.data), b_f32.stride as i64, 1.0, bitcast[&mut [f32]](c_f32.data), c_f32.stride as i64);
+    cblas_gemm[f32](
+            match c.addr_mode {
+                AddrMode::RowMajor => CBLAS_LAYOUT::CblasRowMajor,
+                AddrMode::ColMajor => CBLAS_LAYOUT::CblasColMajor,
+            },
+            match (c.addr_mode, a.addr_mode) {
+                (AddrMode::RowMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasTrans,
+                (AddrMode::RowMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasTrans,
+            },
+            match (c.addr_mode, b.addr_mode) {
+                (AddrMode::RowMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasTrans,
+                (AddrMode::RowMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasTrans,
+            },
+            m, n, k, 1.0, bitcast[&mut [f32]](a_f32.data), a_f32.stride as i64, bitcast[&mut [f32]](b_f32.data), b_f32.stride as i64, 1.0, bitcast[&mut [f32]](c_f32.data), c_f32.stride as i64);
 
     if (sizeof[c_element_type]() != 4 : i64) {
         for x in range(0, c_f32.x_dim) {
