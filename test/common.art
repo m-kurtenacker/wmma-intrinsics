@@ -21,6 +21,9 @@
 
 static debug_prints = false;
 
+static warmup_iterations = 0;
+static benchmark_iterations = 1;
+
 #[export]
 fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let acc = get_accelerator();
@@ -61,19 +64,25 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     let c_global_tensor = Tensor[c_element_type] { data = bitcast[&mut[c_element_type]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
     let d_global_tensor = Tensor[c_element_type] { data = bitcast[&mut[c_element_type]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
+    for _ in range(0, warmup_iterations) {
+        accelerated_matmul(acc, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    }
+
     // NVVM multiply tensors
     print_string("NVVM multiplication:\n");
     acc.sync();
     let acc_start = accelerator_time();
 
-    accelerated_matmul(acc, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    for _ in range(0, benchmark_iterations) {
+        accelerated_matmul(acc, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+    }
 
     acc.sync();
     let acc_end = accelerator_time();
     print_string("Done!\n");
     if (acc_end - acc_start > 0) {
         print_string("Took ");
-        print_i64(acc_end - acc_start);
+        print_i64((acc_end - acc_start) / (benchmark_iterations as i64));
         print_string("µs\n");
     }
 
