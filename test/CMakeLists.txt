@@ -56,8 +56,6 @@ if (BACKEND STREQUAL "nvvm")
     add_wmma_test(NAME medium_prgmod  FILES common.art operations/prgmod.art layouts/large.art)
     target_link_libraries(medium_prgmod ${BLAS_LIBRARIES})
 elseif (BACKEND STREQUAL "cuda")
-    file(COPY ../backend/cuda_shim.cu DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/)
-
     add_wmma_test(NAME simple FILES common.art operations/cuda_ref.art layouts/simple.art)
     add_wmma_test(NAME layout FILES common.art operations/cuda_ref.art layouts/layout.art)
     add_wmma_test(NAME medium FILES common.art operations/cuda_ref.art layouts/medium.art)
