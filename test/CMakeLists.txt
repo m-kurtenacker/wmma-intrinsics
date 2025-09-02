@@ -125,6 +125,9 @@ elseif (BACKEND STREQUAL "avx")
     add_wmma_test(NAME mho FILES common.art operations/avx_mho.art layouts/medium_avx.art)
     add_wmma_test(NAME tlp FILES common.art operations/avx_tlp.art layouts/medium_avx.art)
 
+    add_wmma_test(NAME prgmod FILES common.art operations/avx_prgmod.art layouts/medium_prgmod.art)
+    target_link_libraries(prgmod ${BLAS_LIBRARIES})
+
     add_wmma_test(NAME large FILES common.art operations/avx_tlp_blas.art layouts/large_avx.art)
     target_link_libraries(large ${BLAS_LIBRARIES})
 

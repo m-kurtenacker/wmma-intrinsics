@@ -1,0 +1,110 @@
+type a_element_type = f32;
+type b_element_type = f32;
+type c_element_type = f32;
+
+static tile_size_x = 0;
+static tile_size_y = 0;
+static tile_size_k = 0;
+
+static mut device_mp_count : i32;
+
+static simd_lanes = 4;
+static num_threads = 4;
+static num_unroll = 4;
+
+#[import(cc = "C", name = "aligned_alloc")] fn aligned_alloc(_alignment: i64, _size: i64) -> &mut [i8];
+
+static accelerator_time = get_micro_time;
+
+fn @get_accelerator () {
+    device_mp_count = 20;
+
+    fn @local_exec(body : fn(WorkItem) -> ()) = @|grid : (i32, i32, i32), _block : (i32, i32, i32)| {
+        for x in range(0, grid.0) {
+            for y in range(0, grid.1) {
+                for z in range(0, grid.2) {
+                    @body(WorkItem {
+                        tidx  = @|| { x },
+                        tidy  = @|| { y },
+                        tidz  = @|| { z },
+                        bidx  = @|| { x },
+                        bidy  = @|| { y },
+                        bidz  = @|| { z },
+                        gidx  = @|| { x },
+                        gidy  = @|| { y },
+                        gidz  = @|| { z },
+                        bdimx = @|| { 1 },
+                        bdimy = @|| { 1 },
+                        bdimz = @|| { 1 },
+                        gdimx = @|| { grid.0 },
+                        gdimy = @|| { grid.1 },
+                        gdimz = @|| { grid.2 },
+                        nblkx = @|| { grid.0 },
+                        nblky = @|| { grid.1 },
+                        nblkz = @|| { grid.2 },
+                    });
+                }
+            }
+        }
+    };
+
+    fn @alloc_align(size: i64) = Buffer {
+        data = aligned_alloc(32, size),
+        size = size,
+        device = 0
+    };
+
+
+    Accelerator {
+        exec = local_exec,
+        sync = @|| { },
+        alloc = alloc_align,
+        //alloc = alloc_cpu,
+        alloc_unified = alloc_cpu,
+        barrier = @|| { },
+    }
+}
+
+fn @accelerated_matmul (_cpu : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim;
+
+    for t in parallel(num_threads, 0, num_threads) {
+        for u in unroll(0, num_unroll) {
+            vectorize(simd_lanes, @|v| {
+                let lidx = t * simd_lanes * num_unroll + u * simd_lanes + v;
+
+                for yl in range_step(0, m, simd_lanes * num_threads * num_unroll) {
+                    let y = yl + lidx;
+
+                    for x in range(0, n) {
+                        let mut rv = 0 : c_element_type;
+
+                        for i in range(0, k) {
+                            let av = a.data(addr_tensor(i, y, a)) as c_element_type;
+                            let bv = b.data(addr_tensor(x, i, b)) as c_element_type;
+
+                            rv += av * bv;
+                        }
+
+                        let cv = c.data(addr_tensor(x, y, c));
+
+                        d.data(addr_tensor(x, y, d)) = (cv + rv);
+                    }
+                }
+            });
+        }
+    }
+}
+
+fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    for x in range(0, c.x_dim) {
+        for y in range(0, c.y_dim) {
+            d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
+        }
+    }
+
+    matrix_multiply_blas(a, b, d);
+}
