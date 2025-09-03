@@ -25,4 +25,14 @@ add_executable(halide ${HALIDE_OBJ} halide.cpp matmul)
 target_link_libraries(halide ${AnyDSL_runtime_LIBRARIES} Halide::Halide matmul)
 target_include_directories(halide PUBLIC ${CMAKE_CURRENT_BINARY_DIR} ${Halide_SRC}/tutorial ${Halide_SRC}/tools)
 
+if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    target_link_libraries(halide
+        "-framework Metal"
+        "-framework MetalKit"
+        "-framework AppKit"
+        "-framework Foundation"
+        "-framework QuartzCore"
+    )
+endif()
+
 add_test(NAME halide_test COMMAND halide)
