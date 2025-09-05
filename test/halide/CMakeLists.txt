@@ -1,4 +1,9 @@
 include(FetchContent)
+
+#These are not needed and introduce additional dependencies that I don't want to deal with.
+set(WITH_SERIALIZATION OFF)
+set(Halide_WASM_BACKEND OFF)
+
 FetchContent_Declare(
         Halide
         GIT_REPOSITORY https://github.com/halide/Halide
