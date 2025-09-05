@@ -128,30 +128,26 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
             let warp_x = block_x + (warp_id % block_x_warps) * wave_size_x;
             let warp_y = block_y + (warp_id / block_x_warps) * wave_size_y;
 
-            //TODO: this depends on the current layout!
-            //Warning: [[acc_type * y] * x] and the corresponding accesses are not supported on the level zero backend, so lambdas are used for that.
-            //Warning: The current solution requires the loops over tile_x and tile_y to be unrolled. Otherwise the program compiles and runs but results are incorrect 😳
-            //let mut acc_fragments : [[acc_type * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
-            let mut acc_fragment_0 : acc_type;
-            let mut acc_fragment_1 : acc_type;
-            let mut acc_fragment_2 : acc_type;
-            let mut acc_fragment_3 : acc_type;
-            let mut acc_fragment_4 : acc_type;
-            let mut acc_fragment_5 : acc_type;
-            let mut acc_fragment_6 : acc_type;
-            let mut acc_fragment_7 : acc_type;
+            /* Construct stack slots for the results to be held in.
+             *
+             * We do this by constructing a chain of lambdas containing references to different mutable variables.
+             * Think of this as a linked list. The unrolling is crucial here, if a regular loop is used, the mutable
+             * variables will collapse into a single one and all tiles will accumulate in that single spot.
+             * (That is, if the code even compiles at that point 🙈)
+             */
+
+            let mut inner_fragments = @|_tile : i32| -> &mut acc_type { bitcast[&mut acc_type](0) };
+            for _tile in unroll(0, warp_x_tiles * warp_y_tiles) {
+                let mut acc_fragment : acc_type;
+
+                let inner_fragments_nomut = inner_fragments;
+                inner_fragments = @|tile : i32| -> &mut acc_type {
+                    if tile == 0 { &mut acc_fragment } else { inner_fragments_nomut(tile - 1) }
+                };
+            }
+            let inner_fragments_nomut = inner_fragments;
             let acc_fragments = @|tile_x : i32| { @|tile_y : i32| {
-                match (tile_x, tile_y) {
-                    (0, 0) => &mut acc_fragment_0,
-                    (0, 1) => &mut acc_fragment_1,
-                    (0, 2) => &mut acc_fragment_2,
-                    (0, 3) => &mut acc_fragment_3,
-                    (1, 0) => &mut acc_fragment_4,
-                    (1, 1) => &mut acc_fragment_5,
-                    (1, 2) => &mut acc_fragment_6,
-                    (1, 3) => &mut acc_fragment_7,
-                    _ => &mut acc_fragment_0
-                }
+                inner_fragments_nomut(tile_x * warp_y_tiles + tile_y)
             }};
 
             /* Load C fragments into registers */
@@ -209,20 +205,16 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
                 for local_k_tile in unroll(0, k_shared_tiles) {
                     let local_k = local_k_tile * tile_size_k;
 
-                    //let mut a_fragments : [mat_a_type * 4 /* warp_y_tiles */];
-                    let mut a_fragment_0 : mat_a_type;
-                    let mut a_fragment_1 : mat_a_type;
-                    let mut a_fragment_2 : mat_a_type;
-                    let mut a_fragment_3 : mat_a_type;
-                    let a_fragments = @|tile_y : i32| {
-                        match tile_y {
-                            0 => &mut a_fragment_0,
-                            1 => &mut a_fragment_1,
-                            2 => &mut a_fragment_2,
-                            3 => &mut a_fragment_3,
-                            _ => &mut a_fragment_0
-                        }
-                    };
+                    let mut inner_fragments = @|_tile : i32| -> &mut mat_a_type { bitcast[&mut mat_a_type](0) };
+                    for _tile in unroll(0, warp_y_tiles) {
+                        let mut acc_fragment : mat_a_type;
+
+                        let inner_fragments_nomut = inner_fragments;
+                        inner_fragments = @|tile : i32| -> &mut mat_a_type {
+                            if tile == 0 { &mut acc_fragment } else { inner_fragments_nomut(tile - 1) }
+                        };
+                    }
+                    let a_fragments = inner_fragments;
 
                     for tile_x in unroll(0, warp_x_tiles /* 2 */) {
                         let local_x = tile_x * tile_size_x;
@@ -343,30 +335,26 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
             let warp_x = block_x + (warp_id % block_x_warps) * wave_size_x;
             let warp_y = block_y + (warp_id / block_x_warps) * wave_size_y;
 
-            //TODO: this depends on the current layout!
-            //Warning: [[acc_type * y] * x] and the corresponding accesses are not supported on the level zero backend, so lambdas are used for that.
-            //Warning: The current solution requires the loops over tile_x and tile_y to be unrolled. Otherwise the program compiles and runs but results are incorrect 😳
-            //let mut acc_fragments : [[acc_type * 4 /* warp_y_tiles */] * 2 /* warp_x_tiles */];
-            let mut acc_fragment_0 : acc_type;
-            let mut acc_fragment_1 : acc_type;
-            let mut acc_fragment_2 : acc_type;
-            let mut acc_fragment_3 : acc_type;
-            let mut acc_fragment_4 : acc_type;
-            let mut acc_fragment_5 : acc_type;
-            let mut acc_fragment_6 : acc_type;
-            let mut acc_fragment_7 : acc_type;
+            /* Construct stack slots for the results to be held in.
+             *
+             * We do this by constructing a chain of lambdas containing references to different mutable variables.
+             * Think of this as a linked list. The unrolling is crucial here, if a regular loop is used, the mutable
+             * variables will collapse into a single one and all tiles will accumulate in that single spot.
+             * (That is, if the code even compiles at that point 🙈)
+             */
+
+            let mut inner_fragments = @|_tile : i32| -> &mut acc_type { bitcast[&mut acc_type](0) };
+            for _tile in unroll(0, warp_x_tiles * warp_y_tiles) {
+                let mut acc_fragment : acc_type;
+
+                let inner_fragments_nomut = inner_fragments;
+                inner_fragments = @|tile : i32| -> &mut acc_type {
+                    if tile == 0 { &mut acc_fragment } else { inner_fragments_nomut(tile - 1) }
+                };
+            }
+            let inner_fragments_nomut = inner_fragments;
             let acc_fragments = @|tile_x : i32| { @|tile_y : i32| {
-                match (tile_x, tile_y) {
-                    (0, 0) => &mut acc_fragment_0,
-                    (0, 1) => &mut acc_fragment_1,
-                    (0, 2) => &mut acc_fragment_2,
-                    (0, 3) => &mut acc_fragment_3,
-                    (1, 0) => &mut acc_fragment_4,
-                    (1, 1) => &mut acc_fragment_5,
-                    (1, 2) => &mut acc_fragment_6,
-                    (1, 3) => &mut acc_fragment_7,
-                    _ => &mut acc_fragment_0
-                }
+                inner_fragments_nomut(tile_x * warp_y_tiles + tile_y)
             }};
 
             /* Load C fragments into registers */
@@ -386,20 +374,17 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
             }
 
             for global_k in range_step(0, k, tile_size_k) {
-                //let mut a_fragments : [mat_a_type * 4 /* warp_y_tiles */];
-                let mut a_fragment_0 : mat_a_type;
-                let mut a_fragment_1 : mat_a_type;
-                let mut a_fragment_2 : mat_a_type;
-                let mut a_fragment_3 : mat_a_type;
-                let a_fragments = @|tile_y : i32| {
-                    match tile_y {
-                        0 => &mut a_fragment_0,
-                        1 => &mut a_fragment_1,
-                        2 => &mut a_fragment_2,
-                        3 => &mut a_fragment_3,
-                        _ => &mut a_fragment_0
-                    }
-                };
+                let mut inner_fragments = @|_tile : i32| -> &mut mat_a_type { bitcast[&mut mat_a_type](0) };
+                for _tile in unroll(0, warp_y_tiles) {
+                    let mut acc_fragment : mat_a_type;
+
+                    let inner_fragments_nomut = inner_fragments;
+                    inner_fragments = @|tile : i32| -> &mut mat_a_type {
+                        if tile == 0 { &mut acc_fragment } else { inner_fragments_nomut(tile - 1) }
+                    };
+                }
+                let a_fragments = inner_fragments;
+
 
                 for tile_x in unroll(0, warp_x_tiles /* 2 */) {
                     let local_x = tile_x * tile_size_x;
@@ -499,30 +484,26 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
         let warp_x = work_item.gidx() / wave_size * warp_x_tiles * tile_size_x;
         let warp_y = work_item.gidy() * warp_y_tiles * tile_size_y;
 
-        //TODO: this depends on the current layout!
-        //Warning: [[acc_type * y] * x] and the corresponding accesses are not supported on the level zero backend, so lambdas are used for that.
-        //Warning: The current solution requires the loops over tile_x and tile_y to be unrolled. Otherwise the program compiles and runs but results are incorrect 😳
-        //let mut acc_fragments : [[acc_type * 4] * 2];
-        let mut acc_fragment_0 : acc_type;
-        let mut acc_fragment_1 : acc_type;
-        let mut acc_fragment_2 : acc_type;
-        let mut acc_fragment_3 : acc_type;
-        let mut acc_fragment_4 : acc_type;
-        let mut acc_fragment_5 : acc_type;
-        let mut acc_fragment_6 : acc_type;
-        let mut acc_fragment_7 : acc_type;
+        /* Construct stack slots for the results to be held in.
+         *
+         * We do this by constructing a chain of lambdas containing references to different mutable variables.
+         * Think of this as a linked list. The unrolling is crucial here, if a regular loop is used, the mutable
+         * variables will collapse into a single one and all tiles will accumulate in that single spot.
+         * (That is, if the code even compiles at that point 🙈)
+         */
+
+        let mut inner_fragments = @|_tile : i32| -> &mut acc_type { bitcast[&mut acc_type](0) };
+        for _tile in unroll(0, warp_x_tiles * warp_y_tiles) {
+            let mut acc_fragment : acc_type;
+
+            let inner_fragments_nomut = inner_fragments;
+            inner_fragments = @|tile : i32| -> &mut acc_type {
+                if tile == 0 { &mut acc_fragment } else { inner_fragments_nomut(tile - 1) }
+            };
+        }
+        let inner_fragments_nomut = inner_fragments;
         let acc_fragments = @|tile_x : i32| { @|tile_y : i32| {
-            match (tile_x, tile_y) {
-                (0, 0) => &mut acc_fragment_0,
-                (0, 1) => &mut acc_fragment_1,
-                (0, 2) => &mut acc_fragment_2,
-                (0, 3) => &mut acc_fragment_3,
-                (1, 0) => &mut acc_fragment_4,
-                (1, 1) => &mut acc_fragment_5,
-                (1, 2) => &mut acc_fragment_6,
-                (1, 3) => &mut acc_fragment_7,
-                _ => &mut acc_fragment_0
-            }
+            inner_fragments_nomut(tile_x * warp_y_tiles + tile_y)
         }};
 
         /* Load C fragments into registers */
@@ -542,20 +523,16 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
         }
 
         for global_k in range_step(0, k, tile_size_k) {
-            //let mut a_fragments : [mat_a_type * 4];
-            let mut a_fragment_0 : mat_a_type;
-            let mut a_fragment_1 : mat_a_type;
-            let mut a_fragment_2 : mat_a_type;
-            let mut a_fragment_3 : mat_a_type;
-            let a_fragments = @|tile_y : i32| {
-                match tile_y {
-                    0 => &mut a_fragment_0,
-                    1 => &mut a_fragment_1,
-                    2 => &mut a_fragment_2,
-                    3 => &mut a_fragment_3,
-                    _ => &mut a_fragment_0
-                }
-            };
+            let mut inner_fragments = @|_tile : i32| -> &mut mat_a_type { bitcast[&mut mat_a_type](0) };
+            for _tile in unroll(0, warp_y_tiles) {
+                let mut acc_fragment : mat_a_type;
+
+                let inner_fragments_nomut = inner_fragments;
+                inner_fragments = @|tile : i32| -> &mut mat_a_type {
+                    if tile == 0 { &mut acc_fragment } else { inner_fragments_nomut(tile - 1) }
+                };
+            }
+            let a_fragments = inner_fragments;
 
             for tile_x in unroll(0, warp_x_tiles /* = 2 */) {
                 let local_x = tile_x * tile_size_x;
