@@ -26,15 +26,15 @@
 +    std::string attrs = "-trap-handler,+wavefrontsize32,-wavefrontsize64";
 */
 
-type amdgcn_acc_datatype = simd[c_element_type * 16];
-type amdgcn_mat_datatype = simd[a_element_type * 16];
+type amdgfx11_acc_datatype = simd[c_element_type * 16];
+type amdgfx11_mat_datatype = simd[a_element_type * 16];
 
-#[import(cc = "device", name = "llvm.amdgcn.wmma.f16.16x16x16.f16.v16f16.v16f16")] fn amdgcn_wmma(amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype, bool) -> amdgcn_acc_datatype;
+#[import(cc = "device", name = "llvm.amdgcn.wmma.f16.16x16x16.f16.v16f16.v16f16")] fn amdgfx11_wmma(amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_datatype, bool) -> amdgfx11_acc_datatype;
 
-static HSAWMMAOperations = WMMAOperations [amdgcn_mat_datatype, amdgcn_mat_datatype, amdgcn_acc_datatype] {
+static GFX11WMMAOperations = WMMAOperations [amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_datatype] {
     load_a = @|fragment_tensor| {
         let lane = amdgcn_workitem_id_x() % 16;
-        let mut fragment : amdgcn_mat_datatype;
+        let mut fragment : amdgfx11_mat_datatype;
         for ele in range(0, 16) {
             fragment(ele) = fragment_tensor.data(addr_tensor(ele, lane, fragment_tensor));
         }
@@ -42,7 +42,7 @@ static HSAWMMAOperations = WMMAOperations [amdgcn_mat_datatype, amdgcn_mat_datat
     },
     load_b = @|fragment_tensor| {
         let lane = amdgcn_workitem_id_x() % 16;
-        let mut fragment : amdgcn_mat_datatype;
+        let mut fragment : amdgfx11_mat_datatype;
         for ele in range(0, 16) {
             fragment(ele) = fragment_tensor.data(addr_tensor(lane, ele, fragment_tensor));
         }
@@ -50,7 +50,7 @@ static HSAWMMAOperations = WMMAOperations [amdgcn_mat_datatype, amdgcn_mat_datat
     },
     load_c = @|fragment_tensor| {
         let lane = amdgcn_workitem_id_x() % 16;
-        let mut fragment : amdgcn_acc_datatype;
+        let mut fragment : amdgfx11_acc_datatype;
         for ele in range(0, 8) {
             let r = ele * 2 + (amdgcn_workitem_id_x() % wave_size / 16);
 
@@ -59,7 +59,7 @@ static HSAWMMAOperations = WMMAOperations [amdgcn_mat_datatype, amdgcn_mat_datat
         fragment
     },
     wmma = @|a_fragment, _a_layout, b_fragment, _b_layout, acc_fragment, _c_layout| {
-        amdgcn_wmma(a_fragment, b_fragment, acc_fragment, false)
+        amdgfx11_wmma(a_fragment, b_fragment, acc_fragment, false)
     },
     store_d = @|fragment_tensor, acc_fragment| {
         let lane = amdgcn_workitem_id_x() % 16;
