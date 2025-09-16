@@ -25,7 +25,7 @@ implicit = print_function[f16] { print = @| a | { print_f32(a as f32); } };
 implicit = print_function[f32] { print = @| a | { print_f32(a); } };
 implicit = print_function[f64] { print = @| a | { print_f64(a); } };
 
-fn print_matrix[T] (t : Tensor[T], implicit print : print_function[T]) -> () {
+fn @print_matrix[T] (t : Tensor[T], implicit print : print_function[T]) -> () {
     for y in range(0, t.y_dim) {
         for x in range(0, t.x_dim) {
             print.print(t.data(addr_tensor(x, y, t)));
@@ -68,5 +68,50 @@ fn matrix_multiply_naive (a : Tensor[a_element_type], b : Tensor[b_element_type]
     }
     if (print_progress) {
         print_string("\r");
+    }
+}
+
+
+fn @matrix_add_simple (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32]) -> () {
+    let n = c.x_dim;
+    //let m = c.y_dim;
+
+    for y in range(0, n) {
+        for x in range(0, n) {
+            c.data(addr_tensor(x, y, c)) = a.data(addr_tensor(x, y, a)) + b.data(addr_tensor(x, y, b));
+        }
+    }
+}
+
+fn @matrix_sub_simple (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32]) -> () {
+    let n = c.x_dim;
+    //let m = c.y_dim;
+
+    for y in range(0, n) {
+        for x in range(0, n) {
+            c.data(addr_tensor(x, y, c)) = a.data(addr_tensor(x, y, a)) - b.data(addr_tensor(x, y, b));
+        }
+    }
+}
+
+fn @matrix_mul_simple (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32]) -> () {
+    //let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    //let k = a.x_dim;
+
+    for y in range(0, n) {
+        for x in range(0, n) {
+            let mut rv = 0 : f32;
+
+            for i in range(0, n) {
+                let av = a.data(addr_tensor(i, y, a));
+                let bv = b.data(addr_tensor(x, i, b));
+
+                rv += av * bv;
+            }
+
+            c.data(addr_tensor(x, y, c)) = rv;
+        }
     }
 }

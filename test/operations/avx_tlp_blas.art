@@ -17,6 +17,9 @@ static num_threads = 4;
 #[import(cc = "device", name = "llvm.fma.v8f32")] fn avx_fma(_a: simd[f32 * 8], _b: simd[f32 * 8], _c: simd[f32 * 8]) -> simd[f32 * 8];
 #[import(cc = "C", name = "aligned_alloc")] fn aligned_alloc(_alignment: i64, _size: i64) -> &mut [i8];
 
+#[import(cc = "device", name = "llvm.masked.gather.v8f32.v8p0")] fn masked_gather(_addr: simd[&f32 * 8], _align: i32, _mask: simd[bool * simd_lanes], _passthrough: simd[f32 * simd_lanes]) -> simd[f32 * simd_lanes];
+#[import(cc = "device", name = "llvm.masked.scatter.v8f32.v8p0")] fn masked_scatter(_val: simd[f32 * simd_lanes], _addr: simd[&f32 * 8], _align: i32, _mask: simd[bool * simd_lanes]) -> ();
+
 static accelerator_time = get_micro_time;
 
 fn @get_accelerator () {
@@ -78,7 +81,21 @@ fn @do_block (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor
             let mut cv : [simd[c_element_type * simd_lanes] * unroll_steps];
 
             for r in unroll(0, unroll_steps) {
-                cv(r) = *bitcast[&simd[c_element_type * simd_lanes]](&c.data(addr_tensor(x + r * simd_lanes, y, c)));
+                cv(r) = match c.addr_mode {
+                    AddrMode::RowMajor => *bitcast[&simd[c_element_type * simd_lanes]](&c.data(addr_tensor(x + r * simd_lanes, y, c))),
+                    AddrMode::ColMajor => {
+                            let c_addr = simd[&c.data(addr_tensor(x + 0 + r * simd_lanes, y, c)),
+                                              &c.data(addr_tensor(x + 1 + r * simd_lanes, y, c)),
+                                              &c.data(addr_tensor(x + 2 + r * simd_lanes, y, c)),
+                                              &c.data(addr_tensor(x + 3 + r * simd_lanes, y, c)),
+                                              &c.data(addr_tensor(x + 4 + r * simd_lanes, y, c)),
+                                              &c.data(addr_tensor(x + 5 + r * simd_lanes, y, c)),
+                                              &c.data(addr_tensor(x + 6 + r * simd_lanes, y, c)),
+                                              &c.data(addr_tensor(x + 7 + r * simd_lanes, y, c))];
+                            let true_mask = simd[true; simd_lanes];
+                            masked_gather(c_addr, 0, true_mask, simd[0 : c_element_type; simd_lanes])
+                    }
+                };
             }
 
             for i in range(0, k) {
@@ -86,20 +103,47 @@ fn @do_block (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor
                     let mut rv = cv(r);
 
                     let avl = a.data(addr_tensor(i, y, a));
-                    //let av = simd[avl, avl, avl, avl] : simd[c_element_type * 4];
-                    let av = simd[avl, avl, avl, avl, avl, avl, avl, avl] : simd[c_element_type * 8];
+                    let av = simd[avl; simd_lanes] : simd[c_element_type * simd_lanes];
 
-                    let bv = *bitcast[&simd[c_element_type * simd_lanes]](&b.data(addr_tensor(x + r * simd_lanes, i, b)));
+                    let bv = match b.addr_mode {
+                        AddrMode::RowMajor => *bitcast[&simd[c_element_type * simd_lanes]](&b.data(addr_tensor(x + r * simd_lanes, i, b))),
+                        AddrMode::ColMajor => {
+                            let b_addr = simd[&b.data(addr_tensor(x + 0 + r * simd_lanes, i, b)),
+                                              &b.data(addr_tensor(x + 1 + r * simd_lanes, i, b)),
+                                              &b.data(addr_tensor(x + 2 + r * simd_lanes, i, b)),
+                                              &b.data(addr_tensor(x + 3 + r * simd_lanes, i, b)),
+                                              &b.data(addr_tensor(x + 4 + r * simd_lanes, i, b)),
+                                              &b.data(addr_tensor(x + 5 + r * simd_lanes, i, b)),
+                                              &b.data(addr_tensor(x + 6 + r * simd_lanes, i, b)),
+                                              &b.data(addr_tensor(x + 7 + r * simd_lanes, i, b))];
+                            let true_mask = simd[true; simd_lanes];
+                            masked_gather(b_addr, 0, true_mask, simd[0 : c_element_type; simd_lanes])
+                        }
+                    };
 
-                    rv = avx_fma(av, bv, rv);
-                    //rv = av * bv + rv;
+                    //rv = avx_fma(av, bv, rv);
+                    rv = av * bv + rv;
 
                     cv(r) = rv;
                 }
             }
 
             for r in unroll(0, unroll_steps) {
-                *bitcast[&mut simd[c_element_type * simd_lanes]](&d.data(addr_tensor(x + r * simd_lanes, y, d))) = cv(r);
+                match d.addr_mode {
+                    AddrMode::RowMajor => *bitcast[&mut simd[c_element_type * simd_lanes]](&d.data(addr_tensor(x + r * simd_lanes, y, d))) = cv(r),
+                    AddrMode::ColMajor => {
+                            let d_addr = simd[&d.data(addr_tensor(x + 0 + r * simd_lanes, y, d)),
+                                              &d.data(addr_tensor(x + 1 + r * simd_lanes, y, d)),
+                                              &d.data(addr_tensor(x + 2 + r * simd_lanes, y, d)),
+                                              &d.data(addr_tensor(x + 3 + r * simd_lanes, y, d)),
+                                              &d.data(addr_tensor(x + 4 + r * simd_lanes, y, d)),
+                                              &d.data(addr_tensor(x + 5 + r * simd_lanes, y, d)),
+                                              &d.data(addr_tensor(x + 6 + r * simd_lanes, y, d)),
+                                              &d.data(addr_tensor(x + 7 + r * simd_lanes, y, d))];
+                            let true_mask = simd[true; simd_lanes];
+                            masked_scatter(cv(r), d_addr, 0, true_mask);
+                    }
+                };
             }
         }
     }
