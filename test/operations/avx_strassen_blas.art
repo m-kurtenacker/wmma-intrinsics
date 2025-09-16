@@ -1,0 +1,573 @@
+type a_element_type = f32;
+type b_element_type = f32;
+type c_element_type = f32;
+
+static tile_size_x = 0;
+static tile_size_y = 0;
+static tile_size_k = 0;
+
+static mut device_mp_count : i32;
+
+static strassen_base_matmul_size = 64;
+static strassen_simd_lanes = 8;
+static strassen_unroll_steps = 8;
+static strassen_block_size = 256; //Should divide the matrix into the largest blocks possible such that all threads do some work in the end.
+static strassen_num_threads = 4;
+
+//#[import(cc = "device", name = "llvm.fma.v4f64")] fn avx_fma(_a: simd[f64 * 4], _b: simd[f64 * 4], _c: simd[f64 * 4]) -> simd[f64 * 4];
+//#[import(cc = "device", name = "llvm.fma.v8f32")] fn avx_fma(_a: simd[f32 * 8], _b: simd[f32 * 8], _c: simd[f32 * 8]) -> simd[f32 * 8];
+#[import(cc = "C", name = "aligned_alloc")] fn aligned_alloc(_alignment: i64, _size: i64) -> &mut [i8];
+
+#[import(cc = "device", name = "llvm.masked.gather.v8f32.v8p0")] fn masked_gather(_addr: simd[&f32 * 8], _align: i32, _mask: simd[bool * strassen_simd_lanes], _passthrough: simd[f32 * strassen_simd_lanes]) -> simd[f32 * strassen_simd_lanes];
+#[import(cc = "device", name = "llvm.masked.scatter.v8f32.v8p0")] fn masked_scatter(_val: simd[f32 * strassen_simd_lanes], _addr: simd[&f32 * 8], _align: i32, _mask: simd[bool * strassen_simd_lanes]) -> ();
+
+static accelerator_time = get_micro_time;
+
+fn @get_accelerator () {
+    device_mp_count = 20;
+
+    fn @local_exec(body : fn(WorkItem) -> ()) = @|grid : (i32, i32, i32), _block : (i32, i32, i32)| {
+        for x in range(0, grid.0) {
+            for y in range(0, grid.1) {
+                for z in range(0, grid.2) {
+                    @body(WorkItem {
+                        tidx  = @|| { x },
+                        tidy  = @|| { y },
+                        tidz  = @|| { z },
+                        bidx  = @|| { x },
+                        bidy  = @|| { y },
+                        bidz  = @|| { z },
+                        gidx  = @|| { x },
+                        gidy  = @|| { y },
+                        gidz  = @|| { z },
+                        bdimx = @|| { 1 },
+                        bdimy = @|| { 1 },
+                        bdimz = @|| { 1 },
+                        gdimx = @|| { grid.0 },
+                        gdimy = @|| { grid.1 },
+                        gdimz = @|| { grid.2 },
+                        nblkx = @|| { grid.0 },
+                        nblky = @|| { grid.1 },
+                        nblkz = @|| { grid.2 },
+                    });
+                }
+            }
+        }
+    };
+
+    fn @alloc_align(size: i64) = Buffer {
+        data = aligned_alloc(32, size),
+        size = size,
+        device = 0
+    };
+
+
+    Accelerator {
+        exec = local_exec,
+        sync = @|| { },
+        alloc = alloc_align,
+        alloc_unified = alloc_cpu,
+        barrier = @|| { },
+    }
+}
+
+
+fn @matrix_add_sub (a : Tensor[f32], b : Tensor[f32], d : Tensor[f32], add : bool) -> () {
+    let n = d.x_dim;
+    //let m = c.y_dim;
+
+    for y in range(0, n) {
+        for xl in range_step(0, n, strassen_simd_lanes * strassen_unroll_steps) {
+            //let mut av : [simd[f32 * strassen_simd_lanes] * strassen_unroll_steps];
+            //let mut bv : [simd[f32 * strassen_simd_lanes] * strassen_unroll_steps];
+
+            for r in unroll(0, strassen_unroll_steps) {
+                let x = xl + r * strassen_simd_lanes;
+                let av = match a.addr_mode {
+                    AddrMode::RowMajor => *bitcast[&simd[f32 * strassen_simd_lanes]](&a.data(addr_tensor(x, y, a))),
+                    AddrMode::ColMajor => {
+                        let a_addr = simd[&a.data(addr_tensor(x + 0, y, a)),
+                                          &a.data(addr_tensor(x + 1, y, a)),
+                                          &a.data(addr_tensor(x + 2, y, a)),
+                                          &a.data(addr_tensor(x + 3, y, a)),
+                                          &a.data(addr_tensor(x + 4, y, a)),
+                                          &a.data(addr_tensor(x + 5, y, a)),
+                                          &a.data(addr_tensor(x + 6, y, a)),
+                                          &a.data(addr_tensor(x + 7, y, a))];
+                        let true_mask = simd[true; strassen_simd_lanes];
+                        masked_gather(a_addr, 0, true_mask, simd[0 : f32; strassen_simd_lanes])
+                    }
+                };
+            //} 
+            //for r in unroll(0, strassen_unroll_steps) {
+                //let x = xl + r * strassen_simd_lanes;
+                let bv = match b.addr_mode {
+                    AddrMode::RowMajor => *bitcast[&simd[f32 * strassen_simd_lanes]](&b.data(addr_tensor(x, y, b))),
+                    AddrMode::ColMajor => {
+                        let b_addr = simd[&b.data(addr_tensor(x + 0, y, b)),
+                                          &b.data(addr_tensor(x + 1, y, b)),
+                                          &b.data(addr_tensor(x + 2, y, b)),
+                                          &b.data(addr_tensor(x + 3, y, b)),
+                                          &b.data(addr_tensor(x + 4, y, b)),
+                                          &b.data(addr_tensor(x + 5, y, b)),
+                                          &b.data(addr_tensor(x + 6, y, b)),
+                                          &b.data(addr_tensor(x + 7, y, b))];
+                        let true_mask = simd[true; strassen_simd_lanes];
+                        masked_gather(b_addr, 0, true_mask, simd[0 : f32; strassen_simd_lanes])
+                    }
+                };
+            //}
+            //for r in unroll(0, strassen_unroll_steps) {
+                //let x = xl + r * strassen_simd_lanes;
+
+                //let rv = if (add) { av(r) + bv(r) } else { av(r) - bv(r) };
+                let rv = if (add) { av + bv } else { av - bv };
+
+                match d.addr_mode {
+                    AddrMode::RowMajor => *bitcast[&mut simd[f32 * strassen_simd_lanes]](&d.data(addr_tensor(x, y, d))) = rv,
+                    AddrMode::ColMajor => {
+                            let d_addr = simd[&d.data(addr_tensor(x + 0, y, d)),
+                                              &d.data(addr_tensor(x + 1, y, d)),
+                                              &d.data(addr_tensor(x + 2, y, d)),
+                                              &d.data(addr_tensor(x + 3, y, d)),
+                                              &d.data(addr_tensor(x + 4, y, d)),
+                                              &d.data(addr_tensor(x + 5, y, d)),
+                                              &d.data(addr_tensor(x + 6, y, d)),
+                                              &d.data(addr_tensor(x + 7, y, d))];
+                            let true_mask = simd[true; strassen_simd_lanes];
+                            masked_scatter(rv, d_addr, 0, true_mask);
+                    }
+                };
+            }
+        }
+    }
+}
+
+fn @matrix_add (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_add_sub(a, b, r, true);
+fn @matrix_sub (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_add_sub(a, b, r, false);
+
+
+fn @matrix_mul_base (a : Tensor[f32], b : Tensor[f32], d : Tensor[f32]) -> () {
+    let n = b.x_dim;
+
+    for y in range(0, n) {
+        for xl in range_step(0, n, strassen_simd_lanes * strassen_unroll_steps) {
+            //let mut rv = simd[0 : f32; strassen_simd_lanes] : simd[f32 * strassen_simd_lanes];
+            let mut cv : [simd[c_element_type * strassen_simd_lanes] * strassen_unroll_steps];
+
+            for r in unroll(0, strassen_unroll_steps) {
+                cv(r) = simd[0 : f32; strassen_simd_lanes];
+            }
+
+            for i in range(0, n) {
+                for r in unroll(0, strassen_unroll_steps) {
+                    let x = xl + r * strassen_simd_lanes;
+                    let mut rv = cv(r);
+
+                    let avl = a.data(addr_tensor(i, y, a));
+                    let av = simd[avl; strassen_simd_lanes] : simd[f32 * strassen_simd_lanes];
+
+                    let bv = match b.addr_mode {
+                        AddrMode::RowMajor => *bitcast[&simd[f32 * strassen_simd_lanes]](&b.data(addr_tensor(x, i, b))),
+                        AddrMode::ColMajor => {
+                            let b_addr = simd[&b.data(addr_tensor(x + 0, i, b)),
+                                              &b.data(addr_tensor(x + 1, i, b)),
+                                              &b.data(addr_tensor(x + 2, i, b)),
+                                              &b.data(addr_tensor(x + 3, i, b)),
+                                              &b.data(addr_tensor(x + 4, i, b)),
+                                              &b.data(addr_tensor(x + 5, i, b)),
+                                              &b.data(addr_tensor(x + 6, i, b)),
+                                              &b.data(addr_tensor(x + 7, i, b))];
+                            let true_mask = simd[true; strassen_simd_lanes];
+                            masked_gather(b_addr, 0, true_mask, simd[0 : f32; strassen_simd_lanes])
+                        }
+                    };
+
+                    //rv = avx_fma(av, bv, rv);
+                    rv = av * bv + rv;
+
+                    cv(r) = rv;
+                }
+            }
+
+            for r in unroll(0, strassen_unroll_steps) {
+                let x = xl + r * strassen_simd_lanes;
+
+                match d.addr_mode {
+                    AddrMode::RowMajor => *bitcast[&mut simd[f32 * strassen_simd_lanes]](&d.data(addr_tensor(x, y, d))) = cv(r),
+                    AddrMode::ColMajor => {
+                            let d_addr = simd[&d.data(addr_tensor(x + 0, y, d)),
+                                              &d.data(addr_tensor(x + 1, y, d)),
+                                              &d.data(addr_tensor(x + 2, y, d)),
+                                              &d.data(addr_tensor(x + 3, y, d)),
+                                              &d.data(addr_tensor(x + 4, y, d)),
+                                              &d.data(addr_tensor(x + 5, y, d)),
+                                              &d.data(addr_tensor(x + 6, y, d)),
+                                              &d.data(addr_tensor(x + 7, y, d))];
+                            let true_mask = simd[true; strassen_simd_lanes];
+                            masked_scatter(cv(r), d_addr, 0, true_mask);
+                    }
+                };
+            }
+        }
+    }
+}
+
+
+fn matrix_multiply_strassen_noadd (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) -> () {
+    //let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    //let k = a.x_dim;
+    //Assumes quadratic matrix for now.
+
+    let rec_matrix_mul = if n > strassen_base_matmul_size {
+        matrix_multiply_strassen_noadd
+    } else {
+        matrix_mul_base
+    };
+
+    let a_11 = sub_tensor(a,   0,   0, n/2, n/2);
+    let a_12 = sub_tensor(a, n/2,   0, n/2, n/2);
+    let a_21 = sub_tensor(a,   0, n/2, n/2, n/2);
+    let a_22 = sub_tensor(a, n/2, n/2, n/2, n/2);
+
+    let b_11 = sub_tensor(b,   0,   0, n/2, n/2);
+    let b_12 = sub_tensor(b, n/2,   0, n/2, n/2);
+    let b_21 = sub_tensor(b,   0, n/2, n/2, n/2);
+    let b_22 = sub_tensor(b, n/2, n/2, n/2, n/2);
+
+    let r_11 = sub_tensor(r,   0,   0, n/2, n/2);
+    let r_12 = sub_tensor(r, n/2,   0, n/2, n/2);
+    let r_21 = sub_tensor(r,   0, n/2, n/2, n/2);
+    let r_22 = sub_tensor(r, n/2, n/2, n/2, n/2);
+
+
+    let a_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_a = bitcast[&mut[f32]](a_buffer.data);
+    let b_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_b = bitcast[&mut[f32]](b_buffer.data);
+    let c_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_c = bitcast[&mut[f32]](c_buffer.data);
+    let d_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_d = bitcast[&mut[f32]](d_buffer.data);
+
+
+    let a_tensor = Tensor[f32] {
+        data = mem_a,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let b_tensor = Tensor[f32] {
+        data = mem_b,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let c_tensor = Tensor[f32] {
+        data = mem_c,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+
+
+    //These blocks can only be reused because matrix_multiply_strassen_block allocates fresh memory for them.
+    let m1_tensor = r_12;
+    let m2_tensor = r_22;
+    let m3_tensor = r_12;
+    let m4_tensor = r_21;
+    let m6_tensor = r_22;
+    let m7_tensor = r_22;
+
+    let m5_tensor = Tensor[f32] {
+        data = mem_d,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+
+
+    matrix_add(a_11, a_22, a_tensor);
+    matrix_add(b_11, b_22, b_tensor);
+    rec_matrix_mul(a_tensor, b_tensor, m1_tensor);
+
+    matrix_sub(b_21, b_11, a_tensor);
+    rec_matrix_mul(a_22, a_tensor, m4_tensor);
+
+    matrix_add(m1_tensor, m4_tensor, a_tensor);
+
+    matrix_add(a_11, a_12, b_tensor);
+    rec_matrix_mul(b_tensor, b_22, m5_tensor);
+
+    matrix_sub(a_12, a_22, b_tensor);
+    matrix_add(b_21, b_22, c_tensor);
+    rec_matrix_mul(b_tensor, c_tensor, m7_tensor);
+
+    matrix_sub(m5_tensor, m7_tensor, b_tensor);
+
+    matrix_sub(a_tensor, b_tensor, r_11);
+
+    matrix_add(a_21, a_22, a_tensor);
+    rec_matrix_mul(a_tensor, b_11, m2_tensor);
+
+    matrix_sub(m1_tensor, m2_tensor, a_tensor);
+
+    matrix_add(m2_tensor, m4_tensor, r_21);
+
+    matrix_sub(a_21, a_11, b_tensor);
+    matrix_add(b_11, b_12, c_tensor);
+    rec_matrix_mul(b_tensor, c_tensor, m6_tensor);
+
+    matrix_sub(b_12, b_22, b_tensor);
+    rec_matrix_mul(a_11, b_tensor, m3_tensor);
+
+    matrix_add(m3_tensor, m6_tensor, b_tensor);
+
+    matrix_add(a_tensor, b_tensor, r_22);
+
+    matrix_add(m3_tensor, m5_tensor, r_12);
+
+    release(a_buffer);
+    release(b_buffer);
+    release(c_buffer);
+    release(d_buffer);
+}
+
+fn matrix_multiply_strassen_block (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32], r : Tensor[f32]) -> () {
+    //let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    //let k = a.x_dim;
+    //Assumes quadratic matrix for now.
+
+    //let rec_matrix_mul = matrix_mul;
+    let rec_matrix_mul = if n > strassen_base_matmul_size {
+        matrix_multiply_strassen_noadd
+    } else {
+        matrix_mul_base
+    };
+
+    let a_11 = sub_tensor(a,   0,   0, n/2, n/2);
+    let a_12 = sub_tensor(a, n/2,   0, n/2, n/2);
+    let a_21 = sub_tensor(a,   0, n/2, n/2, n/2);
+    let a_22 = sub_tensor(a, n/2, n/2, n/2, n/2);
+
+    let b_11 = sub_tensor(b,   0,   0, n/2, n/2);
+    let b_12 = sub_tensor(b, n/2,   0, n/2, n/2);
+    let b_21 = sub_tensor(b,   0, n/2, n/2, n/2);
+    let b_22 = sub_tensor(b, n/2, n/2, n/2, n/2);
+
+    let c_11 = sub_tensor(c,   0,   0, n/2, n/2);
+    let c_12 = sub_tensor(c, n/2,   0, n/2, n/2);
+    let c_21 = sub_tensor(c,   0, n/2, n/2, n/2);
+    let c_22 = sub_tensor(c, n/2, n/2, n/2, n/2);
+
+    let r_11 = sub_tensor(r,   0,   0, n/2, n/2);
+    let r_12 = sub_tensor(r, n/2,   0, n/2, n/2);
+    let r_21 = sub_tensor(r,   0, n/2, n/2, n/2);
+    let r_22 = sub_tensor(r, n/2, n/2, n/2, n/2);
+
+
+    let a_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_a = bitcast[&mut[f32]](a_buffer.data);
+    let b_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_b = bitcast[&mut[f32]](b_buffer.data);
+    let c_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_c = bitcast[&mut[f32]](c_buffer.data);
+    let d_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_d = bitcast[&mut[f32]](d_buffer.data);
+    let e_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_e = bitcast[&mut[f32]](e_buffer.data);
+    let f_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_f = bitcast[&mut[f32]](f_buffer.data);
+    let g_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    let mem_g = bitcast[&mut[f32]](g_buffer.data);
+
+
+    let a_tensor = Tensor[f32] {
+        data = mem_a,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let b_tensor = Tensor[f32] {
+        data = mem_b,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let c_tensor = Tensor[f32] {
+        data = mem_c,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+
+
+    let m1_tensor = Tensor[f32] {
+        data = mem_e,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let m2_tensor = Tensor[f32] {
+        data = mem_f,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let m3_tensor = Tensor[f32] {
+        data = mem_e,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let m4_tensor = Tensor[f32] {
+        data = mem_g,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let m5_tensor = Tensor[f32] {
+        data = mem_d,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let m6_tensor = Tensor[f32] {
+        data = mem_f,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+    let m7_tensor = Tensor[f32] {
+        data = mem_f,
+        x_dim = n/2,
+        y_dim = n/2,
+        addr_mode = AddrMode::RowMajor,
+        stride = n/2,
+    };
+
+
+    matrix_add(a_11, a_22, a_tensor);
+    matrix_add(b_11, b_22, b_tensor);
+    rec_matrix_mul(a_tensor, b_tensor, m1_tensor);
+
+    matrix_sub(b_21, b_11, a_tensor);
+    rec_matrix_mul(a_22, a_tensor, m4_tensor);
+
+    matrix_add(m1_tensor, m4_tensor, a_tensor);
+
+    matrix_add(a_11, a_12, b_tensor);
+    rec_matrix_mul(b_tensor, b_22, m5_tensor);
+
+    matrix_sub(a_12, a_22, b_tensor);
+    matrix_add(b_21, b_22, c_tensor);
+    rec_matrix_mul(b_tensor, c_tensor, m7_tensor);
+
+    matrix_sub(m5_tensor, m7_tensor, b_tensor);
+
+    matrix_sub(a_tensor, b_tensor, c_tensor);
+    matrix_add(c_tensor, c_11, r_11);
+
+    matrix_add(a_21, a_22, a_tensor);
+    rec_matrix_mul(a_tensor, b_11, m2_tensor);
+
+    matrix_sub(m1_tensor, m2_tensor, a_tensor);
+
+    matrix_add(m2_tensor, m4_tensor, b_tensor);
+    matrix_add(b_tensor, c_21, r_21);
+
+    matrix_sub(a_21, a_11, b_tensor);
+    matrix_add(b_11, b_12, c_tensor);
+    rec_matrix_mul(b_tensor, c_tensor, m6_tensor);
+
+    matrix_sub(b_12, b_22, b_tensor);
+    rec_matrix_mul(a_11, b_tensor, m3_tensor);
+
+    matrix_add(m3_tensor, m6_tensor, b_tensor);
+
+    matrix_add(a_tensor, b_tensor, c_tensor);
+    matrix_add(c_tensor, c_22, r_22);
+
+    matrix_add(m3_tensor, m5_tensor, a_tensor);
+    matrix_add(a_tensor, c_12, r_12);
+
+    release(a_buffer);
+    release(b_buffer);
+    release(c_buffer);
+    release(d_buffer);
+    release(e_buffer);
+    release(f_buffer);
+    release(g_buffer);
+}
+
+fn @matrix_multiply_strassen_parallel (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32], d : Tensor[f32]) -> () {
+    //let m = a.y_dim;
+    let n = b.x_dim;
+    //assert(a.x_dim == b.y_dim);
+    //let k = a.x_dim;
+
+    let blocksize_thread = n / strassen_num_threads;
+
+    print_string("thread blocksize: ");
+    print_i32(blocksize_thread);
+    print_string("\n");
+
+    for t in parallel(strassen_num_threads, 0, strassen_num_threads) {
+        let ts = t * blocksize_thread;
+        let te = (t + 1) * blocksize_thread;
+
+        for y in range_step(ts, te, strassen_block_size) {
+            for x in range_step(0, n, strassen_block_size) {
+                for i in range(0, 1) {
+                    let sub_a = sub_tensor(a, i, y, strassen_block_size, strassen_block_size);
+                    let sub_b = sub_tensor(b, x, i, strassen_block_size, strassen_block_size);
+                    let sub_c = sub_tensor(c, x, y, strassen_block_size, strassen_block_size);
+                    let sub_d = sub_tensor(d, x, y, strassen_block_size, strassen_block_size);
+                    matrix_multiply_strassen_block(sub_a, sub_b, sub_c, sub_d);
+                }
+
+                for i in range_step(strassen_block_size, n, strassen_block_size) {
+                    let sub_a = sub_tensor(a, i, y, strassen_block_size, strassen_block_size);
+                    let sub_b = sub_tensor(b, x, i, strassen_block_size, strassen_block_size);
+                    let sub_d = sub_tensor(d, x, y, strassen_block_size, strassen_block_size);
+                    matrix_multiply_strassen_block(sub_a, sub_b, sub_d, sub_d);
+                }
+            }
+        }
+    }
+}
+
+
+fn @accelerated_matmul (_cpu : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    matrix_multiply_strassen_parallel(a, b, c, d);
+}
+
+fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    for x in range(0, c.x_dim) {
+        for y in range(0, c.y_dim) {
+            d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
+        }
+    }
+
+    matrix_multiply_blas(a, b, d);
+    //matrix_multiply_naive(a, b, c, d);
+}
+
+
