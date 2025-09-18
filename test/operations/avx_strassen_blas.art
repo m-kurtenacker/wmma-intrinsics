@@ -144,29 +144,29 @@ fn @matrix_add_sub (a : Tensor[f32], b : Tensor[f32], d : Tensor[f32], add : boo
     }
 }
 
-fn @matrix_add (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_add_sub(a, b, r, true);
-fn @matrix_sub (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_add_sub(a, b, r, false);
+fn matrix_add (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_add_sub(a, b, r, true);
+fn matrix_sub (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_add_sub(a, b, r, false);
 //fn @matrix_add (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_add_simple(a, b, r);
 //fn @matrix_sub (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) = @matrix_sub_simple(a, b, r);
 
 
-fn @matrix_mul_base (a : Tensor[f32], b : Tensor[f32], d : Tensor[f32]) -> () {
+fn matrix_mul_base (a : Tensor[f32], b : Tensor[f32], d : Tensor[f32]) -> () {
     let n = b.x_dim;
 
     for y in range(0, n) {
-        //for xl in range_step(0, n, strassen_simd_lanes * strassen_unroll_steps) {
-        for x in range_step(0, n, strassen_simd_lanes) {
-            let mut rv = simd[0 : f32; strassen_simd_lanes] : simd[f32 * strassen_simd_lanes];
-            //let mut cv : [simd[c_element_type * strassen_simd_lanes] * strassen_unroll_steps];
+        for xl in range_step(0, n, strassen_simd_lanes * strassen_unroll_steps) {
+        //for x in range_step(0, n, strassen_simd_lanes) {
+            //let mut rv = simd[0 : f32; strassen_simd_lanes] : simd[f32 * strassen_simd_lanes];
+            let mut cv : [simd[c_element_type * strassen_simd_lanes] * strassen_unroll_steps];
 
-            /*for r in unroll(0, strassen_unroll_steps) {
+            for r in unroll(0, strassen_unroll_steps) {
                 cv(r) = simd[0 : f32; strassen_simd_lanes];
-            }*/
+            }
 
             for i in range(0, n) {
-                //for r in unroll(0, strassen_unroll_steps) {
-                    //let x = xl + r * strassen_simd_lanes;
-                    //let mut rv = cv(r);
+                for r in unroll(0, strassen_unroll_steps) {
+                    let x = xl + r * strassen_simd_lanes;
+                    let mut rv = cv(r);
 
                     let avl = a.data(addr_tensor(i, y, a));
                     let av = simd[avl; strassen_simd_lanes] : simd[f32 * strassen_simd_lanes];
@@ -190,14 +190,14 @@ fn @matrix_mul_base (a : Tensor[f32], b : Tensor[f32], d : Tensor[f32]) -> () {
                     //rv = avx_fma(av, bv, rv);
                     rv = av * bv + rv;
 
-                    //cv(r) = rv;
-                //}
+                    cv(r) = rv;
+                }
             }
 
-            //for r in unroll(0, strassen_unroll_steps) {
-                //let x = xl + r * strassen_simd_lanes;
+            for r in unroll(0, strassen_unroll_steps) {
+                let x = xl + r * strassen_simd_lanes;
 
-                //let rv = cv(r);
+                let rv = cv(r);
 
                 match d.addr_mode {
                     AddrMode::RowMajor => *bitcast[&mut simd[f32 * strassen_simd_lanes]](&d.data(addr_tensor(x, y, d))) = rv,
@@ -214,22 +214,27 @@ fn @matrix_mul_base (a : Tensor[f32], b : Tensor[f32], d : Tensor[f32]) -> () {
                             masked_scatter(rv, d_addr, 0, true_mask);
                     }
                 };
-            //}
+            }
         }
     }
 }
 
 
-fn matrix_multiply_strassen_noadd (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32]) -> () {
+fn matrix_multiply_strassen_noadd (a : Tensor[f32], b : Tensor[f32], r : Tensor[f32], buffer : &mut [f32]) -> () {
     //let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);
     //let k = a.x_dim;
     //Assumes quadratic matrix for now.
 
+    let mem_a = bitcast[&mut[f32]](&mut buffer((n/2) * (n/2) * 0));
+    let mem_b = bitcast[&mut[f32]](&mut buffer((n/2) * (n/2) * 1));
+    let mem_c = bitcast[&mut[f32]](&mut buffer((n/2) * (n/2) * 2));
+    let mem_d = bitcast[&mut[f32]](&mut buffer((n/2) * (n/2) * 3));
+
     let rec_matrix_mul = @|a : Tensor[f32], b : Tensor[f32], r : Tensor[f32], n : i32| {
         if n > strassen_base_matmul_size {
-            matrix_multiply_strassen_noadd(a, b, r);
+            matrix_multiply_strassen_noadd(a, b, r, mem_d);
             //matrix_mul_base
         } else {
             matrix_mul_base(a, b, r);
@@ -252,12 +257,12 @@ fn matrix_multiply_strassen_noadd (a : Tensor[f32], b : Tensor[f32], r : Tensor[
     let r_22 = sub_tensor(r, n/2, n/2, n/2, n/2);
 
 
-    let a_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
-    let mem_a = bitcast[&mut[f32]](a_buffer.data);
-    let b_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
-    let mem_b = bitcast[&mut[f32]](b_buffer.data);
-    let c_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
-    let mem_c = bitcast[&mut[f32]](c_buffer.data);
+    //let a_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    //let mem_a = bitcast[&mut[f32]](a_buffer.data);
+    //let b_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    //let mem_b = bitcast[&mut[f32]](b_buffer.data);
+    //let c_buffer = alloc_cpu(sizeof[f32]() * (n/2) as i64 * (n/2) as i64);
+    //let mem_c = bitcast[&mut[f32]](c_buffer.data);
 
 
     let a_tensor = Tensor[f32] {
@@ -331,9 +336,9 @@ fn matrix_multiply_strassen_noadd (a : Tensor[f32], b : Tensor[f32], r : Tensor[
 
     matrix_add(m3_tensor, m5_tensor, r_12);
 
-    release(a_buffer);
-    release(b_buffer);
-    release(c_buffer);
+    //release(a_buffer);
+    //release(b_buffer);
+    //release(c_buffer);
 }
 
 fn matrix_multiply_strassen_block (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32], r : Tensor[f32]) -> () {
@@ -343,9 +348,12 @@ fn matrix_multiply_strassen_block (a : Tensor[f32], b : Tensor[f32], c : Tensor[
     //let k = a.x_dim;
     //Assumes quadratic matrix for now.
 
+    let recursive_buffer = alloc_cpu(sizeof[f32]() * n as i64 * n as i64);
+    let mem_recursive = bitcast[&mut[f32]](recursive_buffer.data);
+
     let rec_matrix_mul = @|a : Tensor[f32], b : Tensor[f32], r : Tensor[f32], n : i32| {
         if n > strassen_base_matmul_size {
-            matrix_multiply_strassen_noadd(a, b, r);
+            matrix_multiply_strassen_noadd(a, b, r, mem_recursive);
             //matrix_mul_base(a, b, r);
         } else {
             matrix_mul_base(a, b, r);
@@ -513,6 +521,8 @@ fn matrix_multiply_strassen_block (a : Tensor[f32], b : Tensor[f32], c : Tensor[
     release(e_buffer);
     release(f_buffer);
     release(g_buffer);
+
+    release(recursive_buffer);
 }
 
 fn @matrix_multiply_strassen_parallel (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32], d : Tensor[f32]) -> () {
