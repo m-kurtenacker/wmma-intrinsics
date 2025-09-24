@@ -34,6 +34,9 @@ if (BACKEND STREQUAL "nvvm")
     add_wmma_test(NAME layout FILES common.art operations/nvvm_ref.art layouts/layout.art)
     add_wmma_test(NAME medium FILES common.art operations/nvvm_ref.art layouts/medium.art)
 
+    add_wmma_test(NAME nowmma FILES common.art operations/nvvm_nowmma.art layouts/simple.art)
+    add_wmma_test(NAME medium_nowmma FILES common.art operations/nvvm_tiled_nowmma.art layouts/medium.art)
+
     file(GLOB GENERATED_TESTS generated/*.art)
     if(NOT GENERATED_TESTS)
         message(STATUS "No generated tests found. Consider generating with `python generate-cases.py`")
