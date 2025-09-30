@@ -1,0 +1,97 @@
+/*
+ * D = A * B + C
+ *
+ * Where:
+ *
+ * A:    (  -> K )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ *
+ * B:    (  -> N )
+ *       (       )
+ *       (| K    )
+ *       (V      )
+ *
+ * C, D: (  -> N )
+ *       (       )
+ *       (| M    )
+ *       (V      )
+ */
+
+type simple_mat_a_datatype = simd[a_element_type * 16];
+type simple_mat_b_datatype = [simd[a_element_type * 16] * 8];
+type simple_acc_datatype = simd[c_element_type * 8];
+
+//This is set up such that 2 threads compute one line in C in dimension N by each computing 8 individual values.
+static SimpleMMAOperations = WMMAOperations [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] {
+    load_a = @|fragment_tensor| {
+        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+        let lane_m = lane / 2;
+
+        let mut mat_a_fragment : simd[a_element_type * 16];
+
+        for i in range(0, 16) {
+            let a_element = fragment_tensor.data(addr_tensor(i, lane_m, fragment_tensor));
+            mat_a_fragment(i) = a_element;
+        }
+
+        mat_a_fragment
+    },
+    load_b = @|fragment_tensor| {
+        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+        let lane_n = (lane % 2) * 8;
+
+        let mut mat_b_fragment : [simd[b_element_type * 16] * 8];
+
+        for i in range(0, 8) {
+            for j in range(0, 16) {
+                let b_element = fragment_tensor.data(addr_tensor(lane_n + i, j, fragment_tensor));
+                mat_b_fragment(i)(j) = b_element;
+            }
+        }
+
+        mat_b_fragment
+    },
+    load_c = @|fragment_tensor| {
+        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+
+        let lane_n = (lane % 2) * 8;
+        let lane_m = lane / 2;
+
+        let mut mat_c_fragment : simd[c_element_type * 8];
+
+        for i in range(0, 8) {
+            let c_element = fragment_tensor.data(addr_tensor(lane_n + i, lane_m, fragment_tensor));
+
+            mat_c_fragment(i) = c_element;
+        }
+
+        mat_c_fragment
+    },
+    wmma = @|a_fragment, _a_layout, b_fragment, _b_layout, acc_fragment, _c_layout| {
+        let mut result : simple_acc_datatype;
+
+        for i in range(0, 8) {
+            result(i) = acc_fragment(i);
+
+            let mul_result = a_fragment * b_fragment(i);
+
+            for j in unroll(0, 16) {
+                result(i) += mul_result(j);
+            }
+        }
+
+        result
+    },
+    store_d = @|fragment_tensor, acc_fragment| {
+        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+
+        let lane_n = (lane % 2) * 8;
+        let lane_m = lane / 2;
+
+        for i in range(0, 8) {
+            fragment_tensor.data(addr_tensor(lane_n + i, lane_m, fragment_tensor)) = acc_fragment(i);
+        }
+    }
+};
