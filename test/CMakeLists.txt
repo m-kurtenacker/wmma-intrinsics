@@ -120,6 +120,12 @@ elseif (BACKEND STREQUAL "levelzero")
 
     add_wmma_test(NAME large_ref  FILES common.art operations/lzero_blocked.art layouts/large.art)
     target_link_libraries(large_ref ${BLAS_LIBRARIES})
+
+    add_wmma_test(NAME nowmma_large FILES common.art operations/lzero_nowmma_blas.art layouts/large.art)
+    target_link_libraries(nowmma_large ${BLAS_LIBRARIES})
+
+    add_wmma_test(NAME wmma_large FILES common.art operations/lzero_wmma_blas.art layouts/large.art)
+    target_link_libraries(wmma_large ${BLAS_LIBRARIES})
 elseif (BACKEND STREQUAL "avx")
     add_wmma_test(NAME simple FILES common.art operations/avx_ref.art layouts/simple.art)
     add_wmma_test(NAME layout FILES common.art operations/avx_ref.art layouts/layout.art)
