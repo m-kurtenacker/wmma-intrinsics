@@ -24,9 +24,9 @@ type simple_mat_b_datatype = [simd[a_element_type * 16] * 8];
 type simple_acc_datatype = simd[c_element_type * 8];
 
 //This is set up such that 2 threads compute one line in C in dimension N by each computing 8 individual values.
-static SimpleMMAOperations = WMMAOperations [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] {
+fn @SimpleMMAOperations(idx_call : fn() -> i32) = WMMAOperations [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] {
     load_a = @|fragment_tensor| {
-        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+        let lane = idx_call() % 32;
         let lane_m = lane / 2;
 
         let mut mat_a_fragment : simd[a_element_type * 16];
@@ -39,7 +39,7 @@ static SimpleMMAOperations = WMMAOperations [simple_mat_a_datatype, simple_mat_b
         mat_a_fragment
     },
     load_b = @|fragment_tensor| {
-        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+        let lane = idx_call() % 32;
         let lane_n = (lane % 2) * 8;
 
         let mut mat_b_fragment : [simd[b_element_type * 16] * 8];
@@ -54,7 +54,7 @@ static SimpleMMAOperations = WMMAOperations [simple_mat_a_datatype, simple_mat_b
         mat_b_fragment
     },
     load_c = @|fragment_tensor| {
-        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+        let lane = idx_call() % 32;
 
         let lane_n = (lane % 2) * 8;
         let lane_m = lane / 2;
@@ -78,14 +78,14 @@ static SimpleMMAOperations = WMMAOperations [simple_mat_a_datatype, simple_mat_b
             let mul_result = a_fragment * b_fragment(i);
 
             for j in unroll(0, 16) {
-                result(i) += mul_result(j);
+                result(i) += mul_result(j) as c_element_type;
             }
         }
 
         result
     },
     store_d = @|fragment_tensor, acc_fragment| {
-        let lane = nvvm_read_ptx_sreg_tid_x() % 32;
+        let lane = idx_call() % 32;
 
         let lane_n = (lane % 2) * 8;
         let lane_m = lane / 2;
