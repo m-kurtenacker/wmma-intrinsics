@@ -1,0 +1,3 @@
+static tile_size_x = 16;
+static tile_size_y = 16;
+static tile_size_k = 16;
