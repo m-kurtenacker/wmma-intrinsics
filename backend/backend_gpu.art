@@ -632,7 +632,7 @@ fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerato
 }
 
 /* Baseline implementation, does not use WMMA intrinsics. */
-fn matrix_multiply_acc_simple [_mat_a_type, _mat_b_type, _acc_type] (acc : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+fn matrix_multiply_acc_simple (acc : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;
     //assert(a.x_dim == b.y_dim);

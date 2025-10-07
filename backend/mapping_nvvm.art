@@ -19,25 +19,9 @@
  *       (V      )
  */
 
-type nvvm_acc_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+type nvvm_acc_f16_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
+type nvvm_acc_f32_datatype = (f32, f32, f32, f32, f32, f32, f32, f32);
 type nvvm_mat_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 * 2]);
-
-fn @nvvm_wmma_expand (a_fragment : nvvm_mat_datatype, b_fragment : nvvm_mat_datatype, c_fragment : nvvm_acc_datatype, a_mode : AddrMode, b_mode : AddrMode) -> nvvm_acc_datatype {
-    let (a1, a2, a3, a4, a5, a6, a7, a8) = a_fragment;
-    let (b1, b2, b3, b4, b5, b6, b7, b8) = b_fragment;
-    let (c1, c2, c3, c4) = c_fragment;
-
-    match (a_mode, b_mode) {
-        (AddrMode::RowMajor, AddrMode::RowMajor) =>
-            nvvm_wmma_row_row(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
-        (AddrMode::ColMajor, AddrMode::RowMajor) =>
-            nvvm_wmma_col_row(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
-        (AddrMode::RowMajor, AddrMode::ColMajor) =>
-            nvvm_wmma_row_col(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
-        (AddrMode::ColMajor, AddrMode::ColMajor) =>
-            nvvm_wmma_col_col(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4)
-    }
-}
 
 fn @nvvm_wmma_load_a_expand(fragment_tensor : Tensor[a_element_type]) -> nvvm_mat_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
@@ -77,7 +61,7 @@ fn @nvvm_wmma_load_b_expand(fragment_tensor : Tensor[b_element_type]) -> nvvm_ma
     }
 }
 
-fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor[c_element_type]) -> nvvm_acc_datatype {
+fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor[c_element_type]) -> nvvm_acc_f16_datatype {
     let cuda_data = bitcast[&i8](fragment_tensor.data);
 
     match fragment_tensor.addr_mode {
@@ -96,7 +80,24 @@ fn @nvvm_wmma_load_c_expand(fragment_tensor : Tensor[c_element_type]) -> nvvm_ac
     }
 }
 
-fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor[c_element_type], acc_fragment : nvvm_acc_datatype) -> () {
+fn @nvvm_wmma_expand (a_fragment : nvvm_mat_datatype, b_fragment : nvvm_mat_datatype, c_fragment : nvvm_acc_f16_datatype, a_mode : AddrMode, b_mode : AddrMode) -> nvvm_acc_f16_datatype {
+    let (a1, a2, a3, a4, a5, a6, a7, a8) = a_fragment;
+    let (b1, b2, b3, b4, b5, b6, b7, b8) = b_fragment;
+    let (c1, c2, c3, c4) = c_fragment;
+
+    match (a_mode, b_mode) {
+        (AddrMode::RowMajor, AddrMode::RowMajor) =>
+            nvvm_wmma_row_row(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
+        (AddrMode::ColMajor, AddrMode::RowMajor) =>
+            nvvm_wmma_col_row(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
+        (AddrMode::RowMajor, AddrMode::ColMajor) =>
+            nvvm_wmma_row_col(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4),
+        (AddrMode::ColMajor, AddrMode::ColMajor) =>
+            nvvm_wmma_col_col(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4)
+    }
+}
+
+fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor[c_element_type], acc_fragment : nvvm_acc_f16_datatype) -> () {
     let d_cuda = bitcast[&mut i8](d_fragment_tensor.data);
     let (acc1, acc2, acc3, acc4) = acc_fragment;
 
@@ -116,7 +117,8 @@ fn @nvvm_wmma_store_d_expand (d_fragment_tensor : Tensor[c_element_type], acc_fr
     }
 }
 
-static NVVMWMMAOperations = WMMAOperations [nvvm_mat_datatype, nvvm_mat_datatype, nvvm_acc_datatype] {
+
+static NVVMWMMAOperations = WMMAOperations [nvvm_mat_datatype, nvvm_mat_datatype, nvvm_acc_f16_datatype] {
     load_a = @|fragment_tensor| {
         nvvm_wmma_load_a_expand(fragment_tensor)
     },
@@ -131,5 +133,110 @@ static NVVMWMMAOperations = WMMAOperations [nvvm_mat_datatype, nvvm_mat_datatype
     },
     store_d = @|fragment_tensor, acc_fragment| {
         nvvm_wmma_store_d_expand (fragment_tensor, acc_fragment);
+    }
+};
+
+
+// F32 variants of all intrinsics and expansion functions.
+
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.c.row.f32.p0")]
+fn nvvm_wmma_load_c_row_f32 (_addr : &i8) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.c.col.f32.p0")]
+fn nvvm_wmma_load_c_col_f32 (_addr : &i8) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.c.row.stride.f32.p0")]
+fn nvvm_wmma_load_c_row_stride_f32 (_addr : &i8, _stride : i32) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.load.c.col.stride.f32.p0")]
+fn nvvm_wmma_load_c_col_stride_f32 (_addr : &i8, _stride : i32) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+
+fn @nvvm_wmma_load_c_expand_f32(fragment_tensor : Tensor[c_element_type]) -> nvvm_acc_f32_datatype {
+    let cuda_data = bitcast[&i8](fragment_tensor.data);
+
+    match fragment_tensor.addr_mode {
+        AddrMode::RowMajor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_wmma_load_c_row_stride_f32(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_wmma_load_c_row_f32(cuda_data)
+            },
+        AddrMode::ColMajor =>
+            if (fragment_tensor.stride > 16) {
+                nvvm_wmma_load_c_col_stride_f32(cuda_data, fragment_tensor.stride)
+            } else {
+                nvvm_wmma_load_c_col_f32(cuda_data)
+            }
+    }
+}
+
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.mma.row.row.f32.f32")]
+fn nvvm_wmma_row_row_f32 (_a0 : simd[f16 * 2], _a1 : simd[f16 * 2], _a2 : simd[f16 * 2], _a3 : simd[f16 * 2], _a4 : simd[f16 * 2], _a5 : simd[f16 * 2], _a6 : simd[f16 * 2], _a7 : simd[f16 * 2], _b0 : simd[f16 * 2], _b1 : simd[f16 * 2], _b2 : simd[f16 * 2], _b3 : simd[f16 * 2], _b4 : simd[f16 * 2], _b5 : simd[f16 * 2], _b6 : simd[f16 * 2], _b7 : simd[f16 * 2], _c0 : f32, _c1 : f32, _c2 : f32, _c3 : f32, _c4 : f32, _c5 : f32, _c6 : f32, _c7 : f32) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.mma.col.row.f32.f32")]
+fn nvvm_wmma_col_row_f32 (_a0 : simd[f16 * 2], _a1 : simd[f16 * 2], _a2 : simd[f16 * 2], _a3 : simd[f16 * 2], _a4 : simd[f16 * 2], _a5 : simd[f16 * 2], _a6 : simd[f16 * 2], _a7 : simd[f16 * 2], _b0 : simd[f16 * 2], _b1 : simd[f16 * 2], _b2 : simd[f16 * 2], _b3 : simd[f16 * 2], _b4 : simd[f16 * 2], _b5 : simd[f16 * 2], _b6 : simd[f16 * 2], _b7 : simd[f16 * 2], _c0 : f32, _c1 : f32, _c2 : f32, _c3 : f32, _c4 : f32, _c5 : f32, _c6 : f32, _c7 : f32) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.mma.row.col.f32.f32")]
+fn nvvm_wmma_row_col_f32 (_a0 : simd[f16 * 2], _a1 : simd[f16 * 2], _a2 : simd[f16 * 2], _a3 : simd[f16 * 2], _a4 : simd[f16 * 2], _a5 : simd[f16 * 2], _a6 : simd[f16 * 2], _a7 : simd[f16 * 2], _b0 : simd[f16 * 2], _b1 : simd[f16 * 2], _b2 : simd[f16 * 2], _b3 : simd[f16 * 2], _b4 : simd[f16 * 2], _b5 : simd[f16 * 2], _b6 : simd[f16 * 2], _b7 : simd[f16 * 2], _c0 : f32, _c1 : f32, _c2 : f32, _c3 : f32, _c4 : f32, _c5 : f32, _c6 : f32, _c7 : f32) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.mma.col.col.f32.f32")]
+fn nvvm_wmma_col_col_f32 (_a0 : simd[f16 * 2], _a1 : simd[f16 * 2], _a2 : simd[f16 * 2], _a3 : simd[f16 * 2], _a4 : simd[f16 * 2], _a5 : simd[f16 * 2], _a6 : simd[f16 * 2], _a7 : simd[f16 * 2], _b0 : simd[f16 * 2], _b1 : simd[f16 * 2], _b2 : simd[f16 * 2], _b3 : simd[f16 * 2], _b4 : simd[f16 * 2], _b5 : simd[f16 * 2], _b6 : simd[f16 * 2], _b7 : simd[f16 * 2], _c0 : f32, _c1 : f32, _c2 : f32, _c3 : f32, _c4 : f32, _c5 : f32, _c6 : f32, _c7 : f32) -> (f32, f32, f32, f32, f32, f32, f32, f32);
+
+fn @nvvm_wmma_expand_f32 (a_fragment : nvvm_mat_datatype, b_fragment : nvvm_mat_datatype, c_fragment : nvvm_acc_f32_datatype, a_mode : AddrMode, b_mode : AddrMode) -> nvvm_acc_f32_datatype {
+    let (a1, a2, a3, a4, a5, a6, a7, a8) = a_fragment;
+    let (b1, b2, b3, b4, b5, b6, b7, b8) = b_fragment;
+    let (c1, c2, c3, c4, c5, c6, c7, c8) = c_fragment;
+
+    match (a_mode, b_mode) {
+        (AddrMode::RowMajor, AddrMode::RowMajor) =>
+            nvvm_wmma_row_row_f32(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4, c5, c6, c7, c8),
+        (AddrMode::ColMajor, AddrMode::RowMajor) =>
+            nvvm_wmma_col_row_f32(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4, c5, c6, c7, c8),
+        (AddrMode::RowMajor, AddrMode::ColMajor) =>
+            nvvm_wmma_row_col_f32(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4, c5, c6, c7, c8),
+        (AddrMode::ColMajor, AddrMode::ColMajor) =>
+            nvvm_wmma_col_col_f32(a1, a2, a3, a4, a5, a6, a7, a8, b1, b2, b3, b4, b5, b6, b7, b8, c1, c2, c3, c4, c5, c6, c7, c8)
+    }
+}
+
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.store.d.row.f32.p0")]
+fn nvvm_wmma_store_d_row_f32 (_addr : &mut i8, f32, f32, f32, f32, f32, f32, f32, f32) -> ();
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.store.d.col.f32.p0")]
+fn nvvm_wmma_store_d_col_f32 (_addr : &mut i8, f32, f32, f32, f32, f32, f32, f32, f32) -> ();
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.store.d.row.stride.f32.p0")]
+fn nvvm_wmma_store_d_row_stride_f32 (_addr : &mut i8, f32, f32, f32, f32, f32, f32, f32, f32, _stride : i32) -> ();
+#[import(cc = "device", name = "llvm.nvvm.wmma.m16n16k16.store.d.col.stride.f32.p0")]
+fn nvvm_wmma_store_d_col_stride_f32 (_addr : &mut i8, f32, f32, f32, f32, f32, f32, f32, f32, _stride : i32) -> ();
+
+fn @nvvm_wmma_store_d_expand_f32 (d_fragment_tensor : Tensor[c_element_type], acc_fragment : nvvm_acc_f32_datatype) -> () {
+    let d_cuda = bitcast[&mut i8](d_fragment_tensor.data);
+    let (acc1, acc2, acc3, acc4, acc5, acc6, acc7, acc8) = acc_fragment;
+
+    match d_fragment_tensor.addr_mode {
+        AddrMode::RowMajor =>
+            if (d_fragment_tensor.stride > 16) {
+                nvvm_wmma_store_d_row_stride_f32(d_cuda, acc1, acc2, acc3, acc4, acc5, acc6, acc7, acc8, d_fragment_tensor.stride);
+            } else {
+                nvvm_wmma_store_d_row_f32(d_cuda, acc1, acc2, acc3, acc4, acc5, acc6, acc7, acc8);
+            },
+        AddrMode::ColMajor =>
+            if (d_fragment_tensor.stride > 16) {
+                nvvm_wmma_store_d_col_stride_f32(d_cuda, acc1, acc2, acc3, acc4, acc5, acc6, acc7, acc8, d_fragment_tensor.stride);
+            } else {
+                nvvm_wmma_store_d_col_f32(d_cuda, acc1, acc2, acc3, acc4, acc5, acc6, acc7, acc8);
+            }
+    }
+}
+
+
+static NVVMWMMAOperationsF32 = WMMAOperations [nvvm_mat_datatype, nvvm_mat_datatype, nvvm_acc_f32_datatype] {
+    load_a = @|fragment_tensor| {
+        nvvm_wmma_load_a_expand(fragment_tensor)
+    },
+    load_b = @|fragment_tensor| {
+        nvvm_wmma_load_b_expand(fragment_tensor)
+    },
+    load_c = @|fragment_tensor| {
+        nvvm_wmma_load_c_expand_f32(fragment_tensor)
+    },
+    wmma = @|a_fragment, a_layout, b_fragment, b_layout, acc_fragment, _c_layout| {
+        nvvm_wmma_expand_f32 (a_fragment, b_fragment, acc_fragment, a_layout, b_layout)
+    },
+    store_d = @|fragment_tensor, acc_fragment| {
+        nvvm_wmma_store_d_expand_f32 (fragment_tensor, acc_fragment);
     }
 };

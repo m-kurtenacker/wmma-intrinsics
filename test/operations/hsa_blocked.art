@@ -10,16 +10,39 @@ static mut device_mp_count : i32;
 
 static accelerator_time = get_kernel_time;
 
+struct WMMA_OP[_T] {
+    blocked : fn(Accelerator, Tensor[a_element_type], Tensor[b_element_type], Tensor[c_element_type], Tensor[c_element_type]) -> (),
+    wmma : fn(Accelerator, Tensor[a_element_type], Tensor[b_element_type], Tensor[c_element_type], Tensor[c_element_type]) -> ()
+}
+
+implicit = WMMA_OP[f16] {
+    blocked = @|hsa, a, b, c, d| {
+        matrix_multiply_acc_blocked [amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_f16_datatype] (hsa, GFX11WMMAOperations, a, b, c, d);
+    },
+    wmma = @|hsa, a, b, c, d| {
+        matrix_multiply_acc_wmma [amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_f16_datatype] (hsa, GFX11WMMAOperations, a, b, c, d);
+    },
+};
+
+implicit = WMMA_OP[f32] {
+    blocked = @|hsa, a, b, c, d| {
+        matrix_multiply_acc_blocked [amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_f32_datatype] (hsa, GFX11WMMAOperationsF32, a, b, c, d);
+    },
+    wmma = @|hsa, a, b, c, d| {
+        matrix_multiply_acc_wmma [amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_f32_datatype] (hsa, GFX11WMMAOperationsF32, a, b, c, d);
+    },
+};
+
 fn @get_accelerator () {
     device_mp_count = runtime_device_nodes(runtime_device(3, 1));
     amdgpu_hsa_accelerator(1)
 }
 
-fn @accelerated_matmul (hsa : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+fn @accelerated_matmul (hsa : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type], implicit wmma : WMMA_OP[c_element_type]) -> () {
     if (M % 128 == 0 && N % 128 == 0) {
-        matrix_multiply_acc_blocked [amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_datatype] (hsa, GFX11WMMAOperations, a, b, c, d);
+        wmma.blocked(hsa, a, b, c, d);
     } else {
-        matrix_multiply_acc_wmma [amdgfx11_mat_datatype, amdgfx11_mat_datatype, amdgfx11_acc_datatype] (hsa, GFX11WMMAOperations, a, b, c, d);
+        wmma.wmma(hsa, a, b, c, d);
     }
 }
 

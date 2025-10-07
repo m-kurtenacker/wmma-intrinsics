@@ -30,7 +30,7 @@ type cuda_mat_datatype = (simd[f16 * 2], simd[f16 * 2], simd[f16 * 2], simd[f16 
 #[import(cc = "device", name = "__hmma_m16n16k16_mma_f16f16")] fn cuda_wmma_mma (_frag_d : &i32, _frag_a : &i32, _frag_b : &i32, _frag_c : &i32, _mode: i32, _satfinite: i32) -> ();
 
 
-fn @cuda_wmma_expand (a_fragment : nvvm_mat_datatype, b_fragment : nvvm_mat_datatype, c_fragment : nvvm_acc_datatype, a_mode : AddrMode, b_mode : AddrMode) -> nvvm_acc_datatype {
+fn @cuda_wmma_expand (a_fragment : cuda_mat_datatype, b_fragment : cuda_mat_datatype, c_fragment : cuda_acc_datatype, a_mode : AddrMode, b_mode : AddrMode) -> cuda_acc_datatype {
     match (a_mode, b_mode) {
         (AddrMode::RowMajor, AddrMode::RowMajor) => {
             let mut d_fragment : cuda_acc_datatype;
