@@ -1,20 +1,3 @@
-type a_element_type = f16;
-type b_element_type = f16;
-type c_element_type = f32;
-
-//static tile_size_x = 8;
-//static tile_size_y = 8;
-//static tile_size_k = 16;
-
-static mut device_mp_count : i32;
-
-static accelerator_time = get_kernel_time;
-
-fn @get_accelerator () {
-    device_mp_count = runtime_device_nodes(runtime_device(5, 0));
-    levelzero_accelerator(0)
-}
-
 fn @accelerated_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     matrix_multiply_acc_simple (lzero, a, b, c, d);
 }

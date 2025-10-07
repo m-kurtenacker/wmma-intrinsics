@@ -35,13 +35,15 @@ type_ext battlemage_mat_b_datatype = { "OpTypeCooperativeMatrixKHR",  "half", "3
 #[import(cc = "device", name = "spirv.coop_matrix.load")] fn spirv_matrix_load[T](&[u8], i32, i32) -> T;
 #[import(cc = "device", name = "spirv.coop_matrix.mad")] fn spirv_matrix_mad(alchemist_mat_a_datatype, alchemist_mat_b_datatype, alchemist_acc_datatype) -> alchemist_acc_datatype;
 #[import(cc = "device", name = "spirv.coop_matrix.store")] fn spirv_matrix_store(&mut [u8], alchemist_acc_datatype, i32, i32) -> ();
+#[import(cc = "device", name = "spirv.coop_matrix.mad")] fn spirv_matrix_mad_battlemage(battlemage_mat_a_datatype, battlemage_mat_b_datatype, battlemage_acc_datatype) -> battlemage_acc_datatype;
+#[import(cc = "device", name = "spirv.coop_matrix.store")] fn spirv_matrix_store_battlemage(&mut [u8], battlemage_acc_datatype, i32, i32) -> ();
 
 fn @match_layout(addr_mode : AddrMode) -> i32 = match addr_mode {
     AddrMode::RowMajor => 0,
     AddrMode::ColMajor => 1
 };
 
-static SPVWMMAOperations = WMMAOperations [alchemist_mat_a_datatype, alchemist_mat_b_datatype, alchemist_acc_datatype] {
+static SPVWMMAOperationsAlchemist = WMMAOperations [alchemist_mat_a_datatype, alchemist_mat_b_datatype, alchemist_acc_datatype] {
     load_a = @|fragment_tensor| {
         spirv_matrix_load[alchemist_mat_a_datatype](bitcast[&[u8]](fragment_tensor.data), match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
     },
@@ -56,5 +58,23 @@ static SPVWMMAOperations = WMMAOperations [alchemist_mat_a_datatype, alchemist_m
     },
     store_d = @|fragment_tensor, acc_fragment| {
         spirv_matrix_store(bitcast[&mut [u8]](fragment_tensor.data), acc_fragment, match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    }
+};
+
+static SPVWMMAOperationsBattlemage = WMMAOperations [battlemage_mat_a_datatype, battlemage_mat_b_datatype, battlemage_acc_datatype] {
+    load_a = @|fragment_tensor| {
+        spirv_matrix_load[battlemage_mat_a_datatype](bitcast[&[u8]](fragment_tensor.data), match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    },
+    load_b = @|fragment_tensor| {
+        spirv_matrix_load[battlemage_mat_b_datatype](bitcast[&[u8]](fragment_tensor.data), match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    },
+    load_c = @|fragment_tensor| {
+        spirv_matrix_load[battlemage_acc_datatype](bitcast[&[u8]](fragment_tensor.data), match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
+    },
+    wmma = @|a_fragment, _a_layout, b_fragment, _b_layout, acc_fragment, _c_layout| {
+        spirv_matrix_mad_battlemage(a_fragment, b_fragment, acc_fragment)
+    },
+    store_d = @|fragment_tensor, acc_fragment| {
+        spirv_matrix_store_battlemage(bitcast[&mut [u8]](fragment_tensor.data), acc_fragment, match_layout(fragment_tensor.addr_mode), fragment_tensor.stride)
     }
 };
