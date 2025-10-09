@@ -6,7 +6,7 @@ function (add_wmma_test)
         "PARGS"
         ""
         "NAME"
-        "FILES"
+        "FILES;UTILS"
         ${ARGN})
 
     string(TOUPPER ${PARGS_NAME} _name)
@@ -17,7 +17,7 @@ function (add_wmma_test)
         FILES ${BACKEND_FILES} ${PARGS_FILES}
     )
 
-    add_executable(${PARGS_NAME} ${${_name}_OBJ})
+    add_executable(${PARGS_NAME} ${${_name}_OBJ} ${PARGS_UTILS})
     target_link_libraries(${PARGS_NAME} ${AnyDSL_runtime_LIBRARIES})
 
     set_property(TARGET ${PARGS_NAME}
@@ -58,6 +58,11 @@ if (BACKEND STREQUAL "nvvm")
 
     add_wmma_test(NAME medium_prgmod  FILES common.art operations/prgmod.art layouts/large.art)
     target_link_libraries(medium_prgmod ${BLAS_LIBRARIES})
+
+    add_wmma_test(NAME bench_large_nowmma FILES benchmark.art operations/nvvm_tiled_nowmma.art layouts/large.art UTILS benchmark_util.c)
+    add_wmma_test(NAME bench_large_tiled FILES benchmark.art operations/nvvm_tiled.art layouts/large.art UTILS benchmark_util.c)
+    add_wmma_test(NAME bench_large_simple FILES benchmark.art operations/nvvm_ref.art layouts/large.art UTILS benchmark_util.c)
+    add_wmma_test(NAME bench_large_blocked FILES benchmark.art operations/nvvm_blocked.art layouts/large.art UTILS benchmark_util.c)
 elseif (BACKEND STREQUAL "cuda")
     add_wmma_test(NAME simple FILES common.art operations/cuda_ref.art layouts/simple.art)
     add_wmma_test(NAME layout FILES common.art operations/cuda_ref.art layouts/layout.art)
