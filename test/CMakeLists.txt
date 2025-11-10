@@ -1,5 +1,17 @@
+#option 1, standard blas lib, optionally with vendor selected
 #set(BLA_VENDOR Intel10_64lp)
 find_package(BLAS REQUIRED)
+
+#option 2, cuda blas lib, requires a shim library to translate functions
+#find_package(CUDAToolkit)
+#add_library(cublas_util cublas_util.cpp)
+#target_link_libraries(cublas_util CUDA::cublas)
+#set(BLAS_LIBRARIES CUDA::cublas cublas_util)
+
+function (add_blas_libraries target)
+    target_link_libraries(${target} ${BLAS_LIBRARIES})
+    #target_link_libraries(${target} CUDA::cublas cublas_util)
+endfunction()
 
 function (add_wmma_test)
     cmake_parse_arguments(
@@ -25,8 +37,8 @@ function (add_wmma_test)
     add_test(NAME ${PARGS_NAME}_test COMMAND ${PARGS_NAME})
 endfunction()
 
-set(BACKEND "nvvm" CACHE STRING "select the backend from the following: NVVM, AMDGPU_HSA, LEVELZERO, ONEAPI, HALIDE, AVX")
-set_property(CACHE BACKEND PROPERTY STRINGS nvvm cuda amdgpu_hsa levelzero oneapi halide avx)
+set(BACKEND "nvvm" CACHE STRING "select the backend from the following: NVVM, AMDGPU_HSA, LEVELZERO, ONEAPI, BLAS, HALIDE, AVX")
+set_property(CACHE BACKEND PROPERTY STRINGS nvvm cuda amdgpu_hsa levelzero oneapi blas halide avx)
 string(TOLOWER ${BACKEND} BACKEND)
 
 option(BENCHMARK "Include benchmarks in test loop.")
@@ -50,16 +62,16 @@ if (BACKEND STREQUAL "nvvm")
     endforeach()
 
     add_wmma_test(NAME large  FILES common.art operations/nvvm_blas.art layouts/large.art)
-    target_link_libraries(large ${BLAS_LIBRARIES})
+    add_blas_libraries(large)
 
     add_wmma_test(NAME large_tiled  FILES common.art operations/nvvm_tiled.art layouts/large.art)
-    target_link_libraries(large_tiled ${BLAS_LIBRARIES})
+    add_blas_libraries(large_tiled)
 
     add_wmma_test(NAME large_ref  FILES common.art operations/nvvm_blocked.art layouts/large.art)
-    target_link_libraries(large_ref ${BLAS_LIBRARIES})
+    add_blas_libraries(large_ref)
 
     add_wmma_test(NAME medium_prgmod  FILES common.art operations/prgmod.art layouts/large.art)
-    target_link_libraries(medium_prgmod ${BLAS_LIBRARIES})
+    add_blas_libraries(medium_prgmod)
 
     if (BENCHMARK)
         file(GLOB GENERATED_TESTS generated/bench_*.art)
@@ -80,13 +92,13 @@ elseif (BACKEND STREQUAL "cuda")
     add_wmma_test(NAME medium FILES common.art operations/cuda_ref.art layouts/medium.art)
 
     add_wmma_test(NAME large  FILES common.art operations/cuda_blas.art layouts/large.art)
-    target_link_libraries(large ${BLAS_LIBRARIES})
+    add_blas_libraries(large)
 
     add_wmma_test(NAME large_tiled  FILES common.art operations/cuda_tiled.art layouts/large.art)
-    target_link_libraries(large_tiled ${BLAS_LIBRARIES})
+    add_blas_libraries(large_tiled)
 
     add_wmma_test(NAME large_ref  FILES common.art operations/cuda_blocked.art layouts/large.art)
-    target_link_libraries(large_ref ${BLAS_LIBRARIES})
+    add_blas_libraries(large_ref)
 elseif (BACKEND STREQUAL "amdgpu_hsa")
     add_wmma_test(NAME simple FILES common.art operations/hsa_ref.art layouts/simple.art)
     add_wmma_test(NAME layout FILES common.art operations/hsa_ref.art layouts/layout.art)
@@ -103,13 +115,13 @@ elseif (BACKEND STREQUAL "amdgpu_hsa")
     endforeach()
 
     add_wmma_test(NAME large  FILES common.art operations/hsa_blas.art layouts/large.art)
-    target_link_libraries(large ${BLAS_LIBRARIES})
+    add_blas_libraries(large)
 
     add_wmma_test(NAME large_tiled  FILES common.art operations/hsa_tiled.art layouts/large.art)
-    target_link_libraries(large_tiled ${BLAS_LIBRARIES})
+    add_blas_libraries(large_tiled)
 
     add_wmma_test(NAME large_ref  FILES common.art operations/hsa_blocked.art layouts/large.art)
-    target_link_libraries(large_ref ${BLAS_LIBRARIES})
+    add_blas_libraries(large_ref)
 
     if (BENCHMARK)
         file(GLOB GENERATED_TESTS generated/bench_*.art)
@@ -143,22 +155,22 @@ elseif (BACKEND STREQUAL "levelzero")
     endforeach()
 
     add_wmma_test(NAME large  FILES common.art operations/lzero_blas.art operations/lzero_tiling_alchemist.art layouts/large.art)
-    target_link_libraries(large ${BLAS_LIBRARIES})
+    add_blas_libraries(large)
 
     add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art operations/lzero_tiling_alchemist.art layouts/large.art)
-    target_link_libraries(large_tiled ${BLAS_LIBRARIES})
+    add_blas_libraries(large_tiled)
 
     add_wmma_test(NAME large_ref  FILES common.art operations/lzero_tiled_shmem.art operations/lzero_tiling_alchemist.art layouts/large.art)
-    target_link_libraries(large_ref ${BLAS_LIBRARIES})
+    add_blas_libraries(large_ref)
 
     add_wmma_test(NAME large_blocked  FILES common.art operations/lzero_blocked.art operations/lzero_tiling_alchemist.art layouts/large.art)
-    target_link_libraries(large_blocked ${BLAS_LIBRARIES})
+    add_blas_libraries(large_blocked)
 
     add_wmma_test(NAME nowmma_large FILES common.art operations/lzero_nowmma_blas.art layouts/large.art)
-    target_link_libraries(nowmma_large ${BLAS_LIBRARIES})
+    add_blas_libraries(nowmma_large)
 
     add_wmma_test(NAME wmma_large FILES common.art operations/lzero_wmma_blas.art operations/lzero_tiling_alchemist.art layouts/large.art)
-    target_link_libraries(wmma_large ${BLAS_LIBRARIES})
+    add_blas_libraries(wmma_large)
 
     if (BENCHMARK)
         add_wmma_test(NAME bench_large_simple FILES benchmark.art operations/lzero_ref.art operations/lzero_tiling_alchemist.art layouts/large.art UTILS benchmark_util.c)
@@ -197,16 +209,16 @@ elseif (BACKEND STREQUAL "avx")
     add_wmma_test(NAME ilp FILES common.art operations/avx_ilp.art layouts/medium_avx.art)
     add_wmma_test(NAME mho FILES common.art operations/avx_mho.art layouts/medium_avx.art)
     add_wmma_test(NAME tlp FILES common.art operations/avx_tlp_blas.art layouts/medium_avx.art)
-    target_link_libraries(tlp ${BLAS_LIBRARIES})
+    add_blas_libraries(tlp)
 
     add_wmma_test(NAME strassen FILES common.art operations/avx_strassen_blas.art layouts/medium_avx.art)
-    target_link_libraries(strassen ${BLAS_LIBRARIES})
+    add_blas_libraries(strassen)
 
     add_wmma_test(NAME prgmod FILES common.art operations/avx_prgmod.art layouts/medium_prgmod.art)
-    target_link_libraries(prgmod ${BLAS_LIBRARIES})
+    add_blas_libraries(prgmod)
 
     add_wmma_test(NAME large FILES common.art operations/avx_tlp_blas.art layouts/large_avx.art)
-    target_link_libraries(large ${BLAS_LIBRARIES})
+    add_blas_libraries(large)
 
     file(GLOB GENERATED_TESTS generated/*.art)
     if(NOT GENERATED_TESTS)
@@ -218,6 +230,17 @@ elseif (BACKEND STREQUAL "avx")
         add_wmma_test(NAME ${TESTNAME}_ref FILES common.art operations/avx_ref.art ${_case})
         add_wmma_test(NAME ${TESTNAME}_inv FILES common.art operations/avx_inv.art ${_case})
     endforeach()
+elseif (BACKEND STREQUAL "blas")
+    add_wmma_test(NAME medium FILES common.art operations/blas.art layouts/medium.art)
+    add_blas_libraries(medium)
+
+    add_wmma_test(NAME large FILES common.art operations/blas.art layouts/large.art)
+    add_blas_libraries(large)
+
+    if (BENCHMARK)
+        add_wmma_test(NAME bench_large FILES benchmark.art operations/blas.art layouts/large.art UTILS benchmark_util.c)
+        add_blas_libraries(bench_large)
+    endif()
 elseif (BACKEND STREQUAL "oneapi")
     add_subdirectory(oneapi)
 elseif (BACKEND STREQUAL "halide")

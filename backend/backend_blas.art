@@ -19,6 +19,48 @@
  *       (V      )
  */
 
+/*
+layout:
+RowMajor => 101,
+ColMajor => 102,
+
+transpose:
+no_transpose => 111
+transpose => 112
+conj_transpose => 113
+*/
+
+#[import(cc="C", name="cblas_hgemm")]
+fn cblas_hgemm_cuda (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f16, _a : &mut [f16], _stride_a : i64, _b : &mut [f16], _stride_b : i64, _beta : f16, _c : &mut [f16], _stride_c : i64) -> ();
+
+#[import(cc="C", name="cblas_sgemm")]
+fn cblas_sgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f32, _a : &mut [f32], _stride_a : i64, _b : &mut [f32], _stride_b : i64, _beta : f32, _c : &mut [f32], _stride_c : i64) -> ();
+
+#[import(cc="C", name="cblas_dgemm")]
+fn cblas_dgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f64, _a : &mut [f64], _stride_a : i64, _b : &mut [f64], _stride_b : i64, _beta : f64, _c : &mut [f64], _stride_c : i64) -> ();
+
+#[import(cc="C", name="cblas_scopy")]
+fn cblas_scopy(_n : i32, _x : &[f32], incx : i32, _y : &mut [f32], incy : i32) -> ();
+
+enum CBLAS_LAYOUT {CblasRowMajor, CblasColMajor}
+fn cblas_layout_to_int (l : CBLAS_LAYOUT) { match l { CBLAS_LAYOUT::CblasRowMajor => 101, CBLAS_LAYOUT::CblasColMajor => 102 } }
+
+enum CBLAS_TRANSPOSE {CblasNoTrans, CblasTrans, CblasConjTrans}
+fn cblas_transpose_to_int (t : CBLAS_TRANSPOSE) { match t { CBLAS_TRANSPOSE::CblasNoTrans => 111, CBLAS_TRANSPOSE::CblasTrans => 112, CBLAS_TRANSPOSE::CblasConjTrans => 113 } }
+
+struct gemm_impl[T] {
+    function : fn (i32, i32, i32, i64, i64, i64, T, &mut [T], i64, &mut [T], i64, T, &mut [T], i64) -> ()
+}
+
+implicit = gemm_impl[f64] { function = cblas_dgemm };
+implicit = gemm_impl[f32] { function = cblas_sgemm };
+implicit = gemm_impl[f16] { function = cblas_hgemm_cuda };
+
+fn cblas_gemm[T] (layout : CBLAS_LAYOUT, transpose_a : CBLAS_TRANSPOSE, transpose_b : CBLAS_TRANSPOSE, m : i64, n : i64, k : i64, alpha : T, a : &mut [T], stride_a : i64, b : &mut [T], stride_b : i64, beta : T, c : &mut [T], stride_c : i64, implicit impl : gemm_impl[T]) -> () {
+    impl.function(cblas_layout_to_int(layout), cblas_transpose_to_int(transpose_a), cblas_transpose_to_int(transpose_b), m, n, k, alpha, a, stride_a, b, stride_b, beta, c, stride_c);
+}
+
+
 struct convert_function[T] { convert : fn (T) -> f32 }
 implicit = convert_function[f16] { convert = @| a | { a as f32 } };
 implicit = convert_function[f32] { convert = @| a | { a } };
@@ -87,6 +129,7 @@ fn matrix_multiply_blas (a : Tensor[a_element_type], b : Tensor[b_element_type],
                 (AddrMode::RowMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasTrans,
             },
             m, n, k, 1.0, bitcast[&mut [f32]](a_f32.data), a_f32.stride as i64, bitcast[&mut [f32]](b_f32.data), b_f32.stride as i64, 1.0, bitcast[&mut [f32]](c_f32.data), c_f32.stride as i64);
+            //m, n, k, 1.0, a.data, a.stride as i64, b.data, b.stride as i64, 1.0, c.data, c.stride as i64);
 
     if (sizeof[c_element_type]() != 4 : i64) {
         for x in range(0, c_f32.x_dim) {

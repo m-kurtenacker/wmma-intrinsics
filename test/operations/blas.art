@@ -1,0 +1,90 @@
+type a_element_type = f32;
+type b_element_type = f32;
+type c_element_type = f32;
+
+static tile_size_x = 0;
+static tile_size_y = 0;
+static tile_size_k = 0;
+
+static mut device_mp_count : i32;
+
+//#[import(cc = "device", name = "llvm.fma.v4f64")] fn avx_fma(_a: simd[f64 * 4], _b: simd[f64 * 4], _c: simd[f64 * 4]) -> simd[f64 * 4];
+//#[import(cc = "device", name = "llvm.fma.v8f32")] fn avx_fma(_a: simd[f32 * 8], _b: simd[f32 * 8], _c: simd[f32 * 8]) -> simd[f32 * 8];
+#[import(cc = "C", name = "aligned_alloc")] fn aligned_alloc(_alignment: i64, _size: i64) -> &mut [i8];
+
+//#[import(cc = "device", name = "llvm.masked.gather.v8f32.v8p0")] fn masked_gather(_addr: simd[&f32 * 8], _align: i32, _mask: simd[bool * strassen_simd_lanes], _passthrough: simd[f32 * strassen_simd_lanes]) -> simd[f32 * strassen_simd_lanes];
+//#[import(cc = "device", name = "llvm.masked.scatter.v8f32.v8p0")] fn masked_scatter(_val: simd[f32 * strassen_simd_lanes], _addr: simd[&f32 * 8], _align: i32, _mask: simd[bool * strassen_simd_lanes]) -> ();
+
+static accelerator_time = get_micro_time;
+
+fn @get_accelerator () {
+    device_mp_count = 20;
+
+    fn @local_exec(body : fn(WorkItem) -> ()) = @|grid : (i32, i32, i32), _block : (i32, i32, i32)| {
+        for x in range(0, grid.0) {
+            for y in range(0, grid.1) {
+                for z in range(0, grid.2) {
+                    @body(WorkItem {
+                        tidx  = @|| { x },
+                        tidy  = @|| { y },
+                        tidz  = @|| { z },
+                        bidx  = @|| { x },
+                        bidy  = @|| { y },
+                        bidz  = @|| { z },
+                        gidx  = @|| { x },
+                        gidy  = @|| { y },
+                        gidz  = @|| { z },
+                        bdimx = @|| { 1 },
+                        bdimy = @|| { 1 },
+                        bdimz = @|| { 1 },
+                        gdimx = @|| { grid.0 },
+                        gdimy = @|| { grid.1 },
+                        gdimz = @|| { grid.2 },
+                        nblkx = @|| { grid.0 },
+                        nblky = @|| { grid.1 },
+                        nblkz = @|| { grid.2 },
+                    });
+                }
+            }
+        }
+    };
+
+    fn @alloc_align(size: i64) = Buffer {
+        //data = aligned_alloc(32, size),
+        data = mkl_malloc(size, 64),
+        size = size,
+        device = 0
+    };
+
+    Accelerator {
+        exec = local_exec,
+        sync = @|| { },
+        alloc = alloc_align,
+        alloc_unified = alloc_cpu,
+        barrier = @|| { },
+    }
+}
+
+/*fn @get_accelerator () {
+    device_mp_count = runtime_device_nodes(runtime_device(1, 0));
+    nvvm_accelerator(0)
+}*/
+
+fn @accelerated_matmul (_cpu : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    /*for x in range(0, c.x_dim) {
+        for y in range(0, c.y_dim) {
+            d.data(addr_tensor(x, y, d)) = c.data(addr_tensor(x, y, d));
+        }
+    }*/
+
+    //f32
+    cblas_scopy(c.x_dim * c.y_dim, c.data, 1, d.data, 1);
+    //f16
+    //cblas_scopy((c.x_dim * c.y_dim) / 2, bitcast[&[f32]](c.data), 1, bitcast[&mut[f32]](d.data), 1);
+
+    matrix_multiply_blas(a, b, d);
+}
+
+fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    matrix_multiply_naive(a, b, c, d);
+}

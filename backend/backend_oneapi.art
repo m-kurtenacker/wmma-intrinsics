@@ -19,47 +19,11 @@
  *       (V      )
  */
 
-/*
-layout:
-RowMajor => 101,
-ColMajor => 102,
-
-transpose:
-no_transpose => 111
-transpose => 112
-conj_transpose => 113
-*/
-
-#[import(cc="C", name="cblas_hgemm")]
-fn cblas_hgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : u16, _a : &mut [f16], _stride_a : i64, _b : &mut [f16], _stride_b : i64, _beta : u16, _c : &mut [f16], _stride_c : i64) -> ();
-
-#[import(cc="C", name="cblas_sgemm")]
-fn cblas_sgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f32, _a : &mut [f32], _stride_a : i64, _b : &mut [f32], _stride_b : i64, _beta : f32, _c : &mut [f32], _stride_c : i64) -> ();
-
-#[import(cc="C", name="cblas_dgemm")]
-fn cblas_dgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f64, _a : &mut [f64], _stride_a : i64, _b : &mut [f64], _stride_b : i64, _beta : f64, _c : &mut [f64], _stride_c : i64) -> ();
-
-
-enum CBLAS_LAYOUT {CblasRowMajor, CblasColMajor}
-fn cblas_layout_to_int (l : CBLAS_LAYOUT) { match l { CBLAS_LAYOUT::CblasRowMajor => 101, CBLAS_LAYOUT::CblasColMajor => 102 } }
-
-enum CBLAS_TRANSPOSE {CblasNoTrans, CblasTrans, CblasConjTrans}
-fn cblas_transpose_to_int (t : CBLAS_TRANSPOSE) { match t { CBLAS_TRANSPOSE::CblasNoTrans => 111, CBLAS_TRANSPOSE::CblasTrans => 112, CBLAS_TRANSPOSE::CblasConjTrans => 113 } }
-
-struct gemm_impl[T] {
-    function : fn (i32, i32, i32, i64, i64, i64, T, &mut [T], i64, &mut [T], i64, T, &mut [T], i64) -> ()
-}
-
-implicit = gemm_impl[f64] { function = cblas_dgemm };
-implicit = gemm_impl[f32] { function = cblas_sgemm };
-
-fn cblas_gemm[T] (layout : CBLAS_LAYOUT, transpose_a : CBLAS_TRANSPOSE, transpose_b : CBLAS_TRANSPOSE, m : i64, n : i64, k : i64, alpha : T, a : &mut [T], stride_a : i64, b : &mut [T], stride_b : i64, beta : T, c : &mut [T], stride_c : i64, implicit impl : gemm_impl[T]) -> () {
-    impl.function(cblas_layout_to_int(layout), cblas_transpose_to_int(transpose_a), cblas_transpose_to_int(transpose_b), m, n, k, alpha, a, stride_a, b, stride_b, beta, c, stride_c);
-}
-
-
 #[import(cc="C", name="MKL_malloc")]
 fn mkl_malloc (_size: i64, _align: i32) -> &mut [i8];
+
+#[import(cc="C", name="cblas_hgemm")]
+fn cblas_hgemm_oneapi (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : u16, _a : &mut [f16], _stride_a : i64, _b : &mut [f16], _stride_b : i64, _beta : u16, _c : &mut [f16], _stride_c : i64) -> ();
 
 
 fn matrix_multiply_oneapi_half (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16]) -> () {
@@ -68,7 +32,7 @@ fn matrix_multiply_oneapi_half (a : Tensor[f16], b : Tensor[f16], c : Tensor[f16
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim as i64;
 
-    cblas_hgemm(101, 111, 111, m, n, k, bitcast[u16](1 : f16), bitcast[&mut [f16]](a.data), a.stride as i64, bitcast[&mut [f16]](b.data), b.stride as i64, bitcast[u16](1 : f16), bitcast[&mut [f16]](c.data), c.stride as i64)
+    cblas_hgemm_oneapi(101, 111, 111, m, n, k, bitcast[u16](1 : f16), bitcast[&mut [f16]](a.data), a.stride as i64, bitcast[&mut [f16]](b.data), b.stride as i64, bitcast[u16](1 : f16), bitcast[&mut [f16]](c.data), c.stride as i64)
 }
 
 fn matrix_multiply_oneapi (a : Tensor[f32], b : Tensor[f32], c : Tensor[f32]) -> () {
