@@ -11,6 +11,10 @@ static mut device_mp_count : i32;
 static accelerator_time = get_kernel_time;
 
 fn @get_accelerator () {
+    print_string("Initializing device ");
+    print_string(runtime_device_name(runtime_device(1, 0)));
+    print_string("\n");
+
     device_mp_count = runtime_device_nodes(runtime_device(1, 0));
     cuda_accelerator(0)
 }

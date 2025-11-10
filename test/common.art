@@ -71,7 +71,7 @@ fn main (_argc : i32, _argv : &[&[u8]]) -> i32 {
     }
 
     // NVVM multiply tensors
-    print_string("NVVM multiplication:\n");
+    print_string("Accelerated multiplication:\n");
     acc.sync();
     let acc_start = accelerator_time();
 

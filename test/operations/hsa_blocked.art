@@ -34,6 +34,10 @@ implicit = WMMA_OP[f32] {
 };
 
 fn @get_accelerator () {
+    print_string("Initializing device ");
+    print_string(runtime_device_name(runtime_device(3, 1)));
+    print_string("\n");
+
     device_mp_count = runtime_device_nodes(runtime_device(3, 1));
     amdgpu_hsa_accelerator(1)
 }

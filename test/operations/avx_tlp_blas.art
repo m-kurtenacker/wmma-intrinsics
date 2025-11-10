@@ -23,6 +23,8 @@ static num_threads = 4;
 static accelerator_time = get_micro_time;
 
 fn @get_accelerator () {
+    print_string("Initializing virtual CPU device\n");
+
     device_mp_count = 20;
 
     fn @local_exec(body : fn(WorkItem) -> ()) = @|grid : (i32, i32, i32), _block : (i32, i32, i32)| {
