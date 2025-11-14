@@ -40,7 +40,7 @@ fn cblas_sgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, 
 fn cblas_dgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f64, _a : &mut [f64], _stride_a : i64, _b : &mut [f64], _stride_b : i64, _beta : f64, _c : &mut [f64], _stride_c : i64) -> ();
 
 #[import(cc="C", name="cblas_scopy")]
-fn cblas_scopy(_n : i32, _x : &[f32], incx : i32, _y : &mut [f32], incy : i32) -> ();
+fn cblas_scopy(_n : i32, _x : &[f32], _incx : i32, _y : &mut [f32], _incy : i32) -> ();
 
 enum CBLAS_LAYOUT {CblasRowMajor, CblasColMajor}
 fn cblas_layout_to_int (l : CBLAS_LAYOUT) { match l { CBLAS_LAYOUT::CblasRowMajor => 101, CBLAS_LAYOUT::CblasColMajor => 102 } }
