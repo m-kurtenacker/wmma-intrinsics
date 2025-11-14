@@ -20,22 +20,6 @@
  */
 
 
-struct print_function[T] { print : fn (T) -> () }
-implicit = print_function[f16] { print = @| a | { print_f32(a as f32); } };
-implicit = print_function[f32] { print = @| a | { print_f32(a); } };
-implicit = print_function[f64] { print = @| a | { print_f64(a); } };
-
-fn @print_matrix[T] (t : Tensor[T], implicit print : print_function[T]) -> () {
-    for y in range(0, t.y_dim) {
-        for x in range(0, t.x_dim) {
-            print.print(t.data(addr_tensor(x, y, t)));
-            if (x < t.x_dim - 1) { print_string(", "); }
-        }
-        print_string("\n");
-    }
-}
-
-
 fn matrix_multiply_naive (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], r : Tensor[c_element_type]) -> () {
     let m = a.y_dim;
     let n = b.x_dim;

@@ -23,3 +23,18 @@ fn @sub_tensor[T](t : Tensor[T], x0 : i32, y0 : i32, xs : i32, ys : i32) =
                 addr_mode = t.addr_mode,
                 stride = t.stride
               };
+
+struct print_function[T] { print : fn (T) -> () }
+implicit = print_function[f16] { print = @| a | { print_f32(a as f32); } };
+implicit = print_function[f32] { print = @| a | { print_f32(a); } };
+implicit = print_function[f64] { print = @| a | { print_f64(a); } };
+
+fn @print_matrix[T] (t : Tensor[T], implicit print : print_function[T]) -> () {
+    for y in range(0, t.y_dim) {
+        for x in range(0, t.x_dim) {
+            print.print(t.data(addr_tensor(x, y, t)));
+            if (x < t.x_dim - 1) { print_string(", "); }
+        }
+        print_string("\n");
+    }
+}
