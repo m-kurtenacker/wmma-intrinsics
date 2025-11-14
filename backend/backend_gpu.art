@@ -104,16 +104,21 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
             data = shared_memory_a,
             x_dim = tile_size_k * k_shared_tiles,
             y_dim = block_size_y,
-            addr_mode = AddrMode::RowMajor,
-            stride = tile_size_k * k_shared_tiles + skew_half
+            addr_mode = a.addr_mode,
+            stride = match (a.addr_mode) {
+                AddrMode::RowMajor => tile_size_k * k_shared_tiles + skew_half,
+                AddrMode::ColMajor => block_size_y + skew_half
+            }
         };
         let b_shared_tensor = Tensor[b_element_type] {
             data = shared_memory_b,
             x_dim = block_size_x,
             y_dim = tile_size_k * k_shared_tiles,
-            addr_mode = AddrMode::ColMajor,
-            //stride = block_size_x + skew_half
-            stride = tile_size_k * k_shared_tiles + skew_half
+            addr_mode = b.addr_mode,
+            stride = match (b.addr_mode) {
+                AddrMode::RowMajor => block_size_x + skew_half,
+                AddrMode::ColMajor => tile_size_k * k_shared_tiles + skew_half
+            }
         };
 
         let warp_id = (work_item.tidx() / wave_size) * block_y_warps + work_item.tidy();
@@ -165,35 +170,94 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
 
         for global_k_sliced in range_step(0, k, tile_size_k * k_shared_tiles) {
             //Populate shared tensors
-            //TODO: assumes a_element_type == b_element_type;
-            let elements_per_operation = (sizeof[i32]() as i32 * 4) / (sizeof[a_element_type]() as i32);
-            let operations_per_lane = (k_shared_tiles * tile_size_k) / elements_per_operation;
-            let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
-            let lanes_per_warp = wave_size / operations_per_lane;
 
+            //A word of explanation:
+            // We want to keep all threads occupied as best as we can, and in a way that we can get decent caching performance.
+            // Doing this wrong can often result in worse performance than relying on the cache alone.
+            // We split the task into two sup-tasks: Copying A and B.
+            // The first half of the available threads coppies A, the second half coppies B.
+            // Copying happens in fixed chunks of simd<i32 * 4> elements per thread, regardles of data type, e.g. for f16, each thread copies 8 values per step (== operations_per_lane).
+            // We move along the minor axis, and assume that we can copy at least one lane per loop iteration.
+            // This means we can get away with one ferwer loops to unroll, but can fail depending on the layout chosen.
+            // Switching between Row and Column major layout results in the roles of x/y and k switching as well:
+            // The first version assumes multiple values in x/y dimension to lie next to each other, but that changes with the layout.
             if (warp_id < (block_total_warps / 2)) {
-                for y_index in unroll_step(0, block_size_y, lanes_per_step) {
-                    let local_y = y_index + warp_id * lanes_per_warp + (lane_id / operations_per_lane);
-                    let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+                let elements_per_operation = (sizeof[i32]() as i32 * 4) / (sizeof[a_element_type]() as i32);
 
-                    let global_y = block_y + local_y;
-                    let global_k = global_k_sliced + local_k;
+                match a.addr_mode {
+                    AddrMode::RowMajor => {
+                        let operations_per_lane = (k_shared_tiles * tile_size_k) / elements_per_operation;
+                        let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                        let lanes_per_warp = wave_size / operations_per_lane;
 
-                    let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
-                    let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
-                    *target_ptr = *src_ptr;
+                        for y_index in unroll_step(0, block_size_y, lanes_per_step) {
+                            let local_y = y_index + warp_id * lanes_per_warp + (lane_id / operations_per_lane);
+                            let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+
+                            let global_y = block_y + local_y;
+                            let global_k = global_k_sliced + local_k;
+
+                            let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
+                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
+                            *target_ptr = *src_ptr;
+                        }
+                    },
+                    AddrMode::ColMajor => {
+                        let operations_per_lane = (block_size_y) / elements_per_operation;
+                        let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                        let lanes_per_warp = wave_size / operations_per_lane;
+
+                        for y_index in unroll_step(0, tile_size_k * k_shared_tiles, lanes_per_step) {
+                            let local_y = y_index + warp_id * lanes_per_warp + (lane_id / operations_per_lane);
+                            let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+
+                            let global_y = block_y + local_y;
+                            let global_k = global_k_sliced + local_k;
+
+                            let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
+                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
+                            *target_ptr = *src_ptr;
+                        }
+                    }
                 }
             } else {
-                for x_index in unroll_step(0, block_size_x, lanes_per_step) {
-                    let local_x = x_index + (warp_id % (block_total_warps / 2)) * lanes_per_warp + (lane_id / operations_per_lane);
-                    let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+                let elements_per_operation = (sizeof[i32]() as i32 * 4) / (sizeof[b_element_type]() as i32);
 
-                    let global_x = block_x + local_x;
-                    let global_k = global_k_sliced + local_k;
+                match b.addr_mode {
+                    AddrMode::ColMajor => {
+                        let operations_per_lane = (k_shared_tiles * tile_size_k) / elements_per_operation;
+                        let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                        let lanes_per_warp = wave_size / operations_per_lane;
 
-                    let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
-                    let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
-                    *target_ptr = *src_ptr;
+                        for x_index in unroll_step(0, block_size_x, lanes_per_step) {
+                            let local_x = x_index + (warp_id % (block_total_warps / 2)) * lanes_per_warp + (lane_id / operations_per_lane);
+                            let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+
+                            let global_x = block_x + local_x;
+                            let global_k = global_k_sliced + local_k;
+
+                            let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
+                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
+                            *target_ptr = *src_ptr;
+                        }
+                    },
+                    AddrMode::RowMajor => {
+                        let operations_per_lane = (block_size_x) / elements_per_operation;
+                        let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                        let lanes_per_warp = wave_size / operations_per_lane;
+
+                        for k_index in unroll_step(0, tile_size_k * k_shared_tiles, lanes_per_step) {
+                            let local_x = (lane_id % operations_per_lane) * elements_per_operation;
+                            let local_k = k_index + (warp_id % (block_total_warps / 2)) * lanes_per_warp + (lane_id / operations_per_lane);
+
+                            let global_x = block_x + local_x;
+                            let global_k = global_k_sliced + local_k;
+
+                            let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
+                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
+                            *target_ptr = *src_ptr;
+                        }
+                    }
                 }
             }
 
@@ -241,7 +305,6 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
 
                         *acc_fragments(tile_x)(tile_y) = result_fragment;
                     }
-
                 }
             }
 
@@ -335,16 +398,21 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
             data = shared_memory_a,
             x_dim = tile_size_k * k_shared_tiles,
             y_dim = block_size_y,
-            addr_mode = AddrMode::RowMajor,
-            stride = tile_size_k * k_shared_tiles + skew_half
+            addr_mode = a.addr_mode,
+            stride = match (a.addr_mode) {
+                AddrMode::RowMajor => tile_size_k * k_shared_tiles + skew_half,
+                AddrMode::ColMajor => block_size_y + skew_half
+            }
         };
         let b_shared_tensor = Tensor[b_element_type] {
             data = shared_memory_b,
             x_dim = block_size_x,
             y_dim = tile_size_k * k_shared_tiles,
-            addr_mode = AddrMode::ColMajor,
-            //stride = block_size_x + skew_half
-            stride = tile_size_k * k_shared_tiles + skew_half
+            addr_mode = b.addr_mode,
+            stride = match (b.addr_mode) {
+                AddrMode::RowMajor => block_size_x + skew_half,
+                AddrMode::ColMajor => tile_size_k * k_shared_tiles + skew_half
+            }
         };
 
         let warp_id = work_item.tidx() / wave_size;
@@ -403,29 +471,83 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
                 let lanes_per_step = (wave_size * 4) / operations_per_lane;
                 let lanes_per_warp = wave_size / operations_per_lane;
 
-                if (warp_id < 4) { //tid 0 - 127
-                    for y_index in unroll_step(0, block_size_y, lanes_per_step) {
-                        let local_y = y_index + warp_id * lanes_per_warp + (lane_id / operations_per_lane);
-                        let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+                if (warp_id < (block_total_warps / 2)) {
+                    let elements_per_operation = (sizeof[i32]() as i32 * 4) / (sizeof[a_element_type]() as i32);
 
-                        let global_y = block_y + local_y;
-                        let global_k = global_k_sliced + local_k;
+                    match a.addr_mode {
+                        AddrMode::RowMajor => {
+                            let operations_per_lane = (k_shared_tiles * tile_size_k) / elements_per_operation;
+                            let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                            let lanes_per_warp = wave_size / operations_per_lane;
 
-                        let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
-                        let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
-                        *target_ptr = *src_ptr;
+                            for y_index in unroll_step(0, block_size_y, lanes_per_step) {
+                                let local_y = y_index + warp_id * lanes_per_warp + (lane_id / operations_per_lane);
+                                let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+
+                                let global_y = block_y + local_y;
+                                let global_k = global_k_sliced + local_k;
+
+                                let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
+                                let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
+                                *target_ptr = *src_ptr;
+                            }
+                        },
+                        AddrMode::ColMajor => {
+                            let operations_per_lane = (block_size_y) / elements_per_operation;
+                            let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                            let lanes_per_warp = wave_size / operations_per_lane;
+
+                            for y_index in unroll_step(0, tile_size_k * k_shared_tiles, lanes_per_step) {
+                                let local_y = y_index + warp_id * lanes_per_warp + (lane_id / operations_per_lane);
+                                let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+
+                                let global_y = block_y + local_y;
+                                let global_k = global_k_sliced + local_k;
+
+                                let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
+                                let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
+                                *target_ptr = *src_ptr;
+                            }
+                        }
                     }
-                } else { //tid 128 - 255
-                    for x_index in unroll_step(0, block_size_x, lanes_per_step) {
-                        let local_x = x_index + (warp_id % 4) * lanes_per_warp + (lane_id / operations_per_lane);
-                        let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+                } else {
+                    let elements_per_operation = (sizeof[i32]() as i32 * 4) / (sizeof[b_element_type]() as i32);
 
-                        let global_x = block_x + local_x;
-                        let global_k = global_k_sliced + local_k;
+                    match b.addr_mode {
+                        AddrMode::ColMajor => {
+                            let operations_per_lane = (k_shared_tiles * tile_size_k) / elements_per_operation;
+                            let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                            let lanes_per_warp = wave_size / operations_per_lane;
 
-                        let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
-                        let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
-                        *target_ptr = *src_ptr;
+                            for x_index in unroll_step(0, block_size_x, lanes_per_step) {
+                                let local_x = x_index + (warp_id % (block_total_warps / 2)) * lanes_per_warp + (lane_id / operations_per_lane);
+                                let local_k = (lane_id % operations_per_lane) * elements_per_operation;
+
+                                let global_x = block_x + local_x;
+                                let global_k = global_k_sliced + local_k;
+
+                                let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
+                                let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
+                                *target_ptr = *src_ptr;
+                            }
+                        },
+                        AddrMode::RowMajor => {
+                            let operations_per_lane = (block_size_x) / elements_per_operation;
+                            let lanes_per_step = (wave_size * (block_total_warps / 2)) / operations_per_lane;
+                            let lanes_per_warp = wave_size / operations_per_lane;
+
+                            for k_index in unroll_step(0, tile_size_k * k_shared_tiles, lanes_per_step) {
+                                let local_x = (lane_id % operations_per_lane) * elements_per_operation;
+                                let local_k = k_index + (warp_id % (block_total_warps / 2)) * lanes_per_warp + (lane_id / operations_per_lane);
+
+                                let global_x = block_x + local_x;
+                                let global_k = global_k_sliced + local_k;
+
+                                let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
+                                let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
+                                *target_ptr = *src_ptr;
+                            }
+                        }
                     }
                 }
 
