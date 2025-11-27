@@ -33,7 +33,7 @@ function (add_wmma_test)
     target_link_libraries(${PARGS_NAME} ${AnyDSL_runtime_LIBRARIES})
 
     set_property(TARGET ${PARGS_NAME}
-        APPEND PROPERTY ADDITIONAL_CLEAN_FILES ${PARGS_NAME}.nvvm ${PARGS_NAME}.nvvm.bc cache)
+        APPEND PROPERTY ADDITIONAL_CLEAN_FILES ${PARGS_NAME}.nvvm ${PARGS_NAME}.nvvm.bc ${PARGS_NAME}.l0.spv ${PARGS_NAME}.cl.spv ${PARGS_NAME}.vk.spv cache)
     add_test(NAME ${PARGS_NAME}_test COMMAND ${PARGS_NAME})
 endfunction()
 
