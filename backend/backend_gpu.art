@@ -50,12 +50,12 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
     //let tile_size_k = 16;
 
     //Each block will calculate x * y many tiles.
-    let block_x_tiles = 2;
-    let block_y_tiles = 2;
+    let block_x_tiles = 4;
+    let block_y_tiles = 4;
 
     //Each warp will be used to calculate this geometry of tiles.
-    let warp_x_tiles = 1;
-    let warp_y_tiles = 1;
+    let warp_x_tiles = 2;
+    let warp_y_tiles = 2;
 
     //Calculate the rest of the grid geometry
     let block_x_warps = block_x_tiles / warp_x_tiles;
@@ -342,9 +342,9 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
     //let tile_size_k = 16;
 
     let warp_x_tiles = 2;
-    let warp_y_tiles = 4;
+    let warp_y_tiles = 2;
 
-    let block_x_warps = 4;
+    let block_x_warps = 2;
     let block_y_warps = 2;
 
 
@@ -632,9 +632,9 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
     //let tile_size_k = 16;
 
     let warp_x_tiles = 2;
-    let warp_y_tiles = 4;
+    let warp_y_tiles = 2;
 
-    let block_x_warps = 4;
+    let block_x_warps = 2;
     let block_y_warps = 2;
 
 
@@ -795,12 +795,12 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
     //let tile_size_k = 16;
 
     //Each block will calculate x * y many tiles.
-    let block_x_tiles = 8;
-    let block_y_tiles = 8;
+    let block_x_tiles = 4;
+    let block_y_tiles = 4;
 
     //Each warp will be used to calculate this geometry of tiles.
     let warp_x_tiles = 2;
-    let warp_y_tiles = 4;
+    let warp_y_tiles = 2;
 
     //Calculate the rest of the grid geometry
     let block_x_warps = block_x_tiles / warp_x_tiles;
