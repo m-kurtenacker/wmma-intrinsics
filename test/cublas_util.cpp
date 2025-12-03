@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <iostream>
 
 cublasHandle_t handle;
 bool created = false;
@@ -34,6 +35,9 @@ void cblas_sgemm(int layout, int transpose_a, int transpose_b, size_t m, size_t 
             stride_c);
 }
 
+//#[import(cc="C", name="cblas_hgemm")]
+//fn cblas_hgemm_cuda (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : i16, _a : &mut [f16], _stride_a : i64, _b : &mut [f16], _stride_b : i64, _beta : i16, _c : &mut [f16], _stride_c : i64) -> ();
+//Clang turns float-16 parameters into int-16! (The pointers are untyped anyways, so they don't change.)
 void cblas_hgemm(int layout, int transpose_a, int transpose_b, size_t m, size_t n, size_t k, __half alpha, __half * a, size_t stride_a, __half * b, size_t stride_b, __half beta, __half * c, size_t stride_c) {
     if (!created) {
         cublasCreate(&handle);

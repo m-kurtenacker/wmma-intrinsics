@@ -31,7 +31,9 @@ conj_transpose => 113
 */
 
 #[import(cc="C", name="cblas_hgemm")]
-fn cblas_hgemm_cuda (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f16, _a : &mut [f16], _stride_a : i64, _b : &mut [f16], _stride_b : i64, _beta : f16, _c : &mut [f16], _stride_c : i64) -> ();
+fn cblas_hgemm_cuda (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : i16, _a : &mut [f16], _stride_a : i64, _b : &mut [f16], _stride_b : i64, _beta : i16, _c : &mut [f16], _stride_c : i64) -> ();
+
+fn cblas_hgemm (layout : i32, transpose_a : i32, transpose_b: i32, m : i64, n : i64, k : i64, alpha : f16, a : &mut [f16], stride_a : i64, b : &mut [f16], stride_b : i64, beta : f16, c : &mut [f16], stride_c : i64) -> () = @cblas_hgemm_cuda(layout, transpose_a, transpose_b, m, n, k, bitcast[i16](alpha), a, stride_a, b, stride_b, bitcast[i16](beta), c, stride_c);
 
 #[import(cc="C", name="cblas_sgemm")]
 fn cblas_sgemm (_layout : i32, _transpose_a : i32, _transpose_b: i32, _m : i64, _n : i64, _k : i64, _alpha : f32, _a : &mut [f32], _stride_a : i64, _b : &mut [f32], _stride_b : i64, _beta : f32, _c : &mut [f32], _stride_c : i64) -> ();
@@ -54,7 +56,7 @@ struct gemm_impl[T] {
 
 implicit = gemm_impl[f64] { function = cblas_dgemm };
 implicit = gemm_impl[f32] { function = cblas_sgemm };
-implicit = gemm_impl[f16] { function = cblas_hgemm_cuda };
+implicit = gemm_impl[f16] { function = cblas_hgemm };
 
 fn cblas_gemm[T] (layout : CBLAS_LAYOUT, transpose_a : CBLAS_TRANSPOSE, transpose_b : CBLAS_TRANSPOSE, m : i64, n : i64, k : i64, alpha : T, a : &mut [T], stride_a : i64, b : &mut [T], stride_b : i64, beta : T, c : &mut [T], stride_c : i64, implicit impl : gemm_impl[T]) -> () {
     impl.function(cblas_layout_to_int(layout), cblas_transpose_to_int(transpose_a), cblas_transpose_to_int(transpose_b), m, n, k, alpha, a, stride_a, b, stride_b, beta, c, stride_c);
@@ -89,7 +91,9 @@ fn @id_convert[S, T] (src : Tensor[S]) = Tensor[T] {
     stride = src.stride
 };
 
-fn matrix_multiply_blas (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type]) -> () {
+fn matrix_multiply_blas(a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type]) = matrix_multiply_blas_converted(a, b, c);
+
+fn matrix_multiply_blas_converted (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type]) -> () {
     let m = a.y_dim as i64;
     let n = b.x_dim as i64;
     //assert(a.x_dim == b.y_dim);
@@ -129,7 +133,6 @@ fn matrix_multiply_blas (a : Tensor[a_element_type], b : Tensor[b_element_type],
                 (AddrMode::RowMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasTrans,
             },
             m, n, k, 1.0, bitcast[&mut [f32]](a_f32.data), a_f32.stride as i64, bitcast[&mut [f32]](b_f32.data), b_f32.stride as i64, 1.0, bitcast[&mut [f32]](c_f32.data), c_f32.stride as i64);
-            //m, n, k, 1.0, a.data, a.stride as i64, b.data, b.stride as i64, 1.0, c.data, c.stride as i64);
 
     if (sizeof[c_element_type]() != 4 : i64) {
         for x in range(0, c_f32.x_dim) {
@@ -138,4 +141,30 @@ fn matrix_multiply_blas (a : Tensor[a_element_type], b : Tensor[b_element_type],
             }
         }
     }
+}
+
+fn matrix_multiply_blas_native (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type]) -> () {
+    let m = a.y_dim as i64;
+    let n = b.x_dim as i64;
+    //assert(a.x_dim == b.y_dim);
+    let k = a.x_dim as i64;
+
+    cblas_gemm[c_element_type](
+            match c.addr_mode {
+                AddrMode::RowMajor => CBLAS_LAYOUT::CblasRowMajor,
+                AddrMode::ColMajor => CBLAS_LAYOUT::CblasColMajor,
+            },
+            match (c.addr_mode, a.addr_mode) {
+                (AddrMode::RowMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasTrans,
+                (AddrMode::RowMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasTrans,
+            },
+            match (c.addr_mode, b.addr_mode) {
+                (AddrMode::RowMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasNoTrans,
+                (AddrMode::ColMajor, AddrMode::RowMajor) => CBLAS_TRANSPOSE::CblasTrans,
+                (AddrMode::RowMajor, AddrMode::ColMajor) => CBLAS_TRANSPOSE::CblasTrans,
+            },
+            m, n, k, 1.0, bitcast[&mut [c_element_type]](a.data), a.stride as i64, bitcast[&mut [c_element_type]](b.data), b.stride as i64, 1.0, c.data, c.stride as i64);
 }
