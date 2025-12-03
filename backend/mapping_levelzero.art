@@ -39,12 +39,12 @@ type_ext battlemage_mat_b_datatype = "spirv.type" { 4456, ((), (), (), (), ()), 
 #[import(cc = "device", name = "spirv.extension")] fn spirv_extension (&[u8]) -> ();
 #[import(cc = "device", name = "spirv.capability")] fn spirv_capability (i32) -> ();
 
-fn @spirv_matrix_load[T](addr : &[u8], layout : i32, stride : i32) = spirv_operation[(&[u8], i32, i32), T](4457, (addr, layout, stride));
-fn @spirv_matrix_store(addr : &mut [u8], c : alchemist_acc_datatype, layout : i32, stride : i32) = spirv_operation[(&[u8], alchemist_acc_datatype, i32, i32), ()](4458, (addr, c, layout, stride));
+fn @spirv_matrix_load[T](addr : &[u8], layout : i32, stride : i32) = spirv_operation[(&addrspace(1)[u8], i32, i32), T](4457, (addr as & addrspace(1)[u8], layout, stride));
+fn @spirv_matrix_store(addr : &mut [u8], c : alchemist_acc_datatype, layout : i32, stride : i32) = spirv_operation[(&addrspace(1)[u8], alchemist_acc_datatype, i32, i32), ()](4458, (addr as & addrspace(1)[u8], c, layout, stride));
 fn @spirv_matrix_mad(a : alchemist_mat_a_datatype, b : alchemist_mat_b_datatype, c : alchemist_acc_datatype) = spirv_operation[(alchemist_mat_a_datatype, alchemist_mat_b_datatype, alchemist_acc_datatype), alchemist_acc_datatype](4459, (a, b, c));
 
 //TODO: these should be polymorphic.
-fn @spirv_matrix_store_battlemage(addr : &mut [u8], c : battlemage_acc_datatype, layout : i32, stride : i32) = spirv_operation[(&[u8], battlemage_acc_datatype, i32, i32), ()](4458, (addr, c, layout, stride));
+fn @spirv_matrix_store_battlemage(addr : &mut [u8], c : battlemage_acc_datatype, layout : i32, stride : i32) = spirv_operation[(& addrspace(1) [u8], battlemage_acc_datatype, i32, i32), ()](4458, (addr as & addrspace(1)[u8], c, layout, stride));
 fn @spirv_matrix_mad_battlemage(a : battlemage_mat_a_datatype, b : battlemage_mat_b_datatype, c : battlemage_acc_datatype) = spirv_operation[(battlemage_mat_a_datatype, battlemage_mat_b_datatype, battlemage_acc_datatype), battlemage_acc_datatype](4459, (a, b, c));
 
 fn @match_layout(addr_mode : AddrMode) -> i32 = match addr_mode {
