@@ -45,17 +45,13 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    //let tile_size_x = 16;
-    //let tile_size_y = 16;
-    //let tile_size_k = 16;
-
     //Each block will calculate x * y many tiles.
-    let block_x_tiles = 4;
-    let block_y_tiles = 4;
+    //let block_x_tiles = 4;
+    //let block_y_tiles = 4;
 
     //Each warp will be used to calculate this geometry of tiles.
-    let warp_x_tiles = 2;
-    let warp_y_tiles = 2;
+    //let warp_x_tiles = 1;
+    //let warp_y_tiles = 2;
 
     //Calculate the rest of the grid geometry
     let block_x_warps = block_x_tiles / warp_x_tiles;
@@ -91,8 +87,8 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
     print_i32(block_y_threads);
     print_string(")\n");
 
-    let k_shared_tiles = 4;
-    let skew_half = 16;
+    //let k_shared_tiles = 1;
+    //let skew_half = 0;
     let shared_a_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_y;
     let shared_b_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_x;
 
@@ -336,20 +332,17 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    //Each warp will be used to calcuate this geometry of tiles.
-    //let tile_size_x = 16;
-    //let tile_size_y = 16;
-    //let tile_size_k = 16;
+    //Each block will calculate x * y many tiles.
+    //let block_x_tiles = 4;
+    //let block_y_tiles = 4;
 
-    let warp_x_tiles = 2;
-    let warp_y_tiles = 2;
+    //Each warp will be used to calculate this geometry of tiles.
+    //let warp_x_tiles = 1;
+    //let warp_y_tiles = 2;
 
-    let block_x_warps = 2;
-    let block_y_warps = 2;
-
-
-    let block_x_tiles = block_x_warps * warp_x_tiles;
-    let block_y_tiles = block_y_warps * warp_y_tiles;
+    //Calculate the rest of the grid geometry
+    let block_x_warps = block_x_tiles / warp_x_tiles;
+    let block_y_warps = block_y_tiles / warp_y_tiles;
 
     let block_size_x = block_x_tiles * tile_size_x;
     let block_size_y = block_y_tiles * tile_size_y;
@@ -368,7 +361,7 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
     let block_total_warps = block_x_warps * block_y_warps;
     let threads_per_block = block_total_warps * wave_size;
 
-    let parallel_blocks = device_mp_count;
+    let parallel_blocks = device_mp_count * pb_factor;
 
     print_string("execute blocked ");
     print_string("tiles (");
@@ -385,8 +378,8 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
     print_i32(threads_per_block);
     print_string(")\n");
 
-    let k_shared_tiles = 4;
-    let skew_half = 16;
+    //let k_shared_tiles = 4;
+    //let skew_half = 16;
     let shared_a_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_y;
     let shared_b_size = (tile_size_k * k_shared_tiles + skew_half) * block_size_x;
 
@@ -626,20 +619,17 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    //Each warp will be used to calcuate this geometry of tiles.
-    //let tile_size_x = 16;
-    //let tile_size_y = 16;
-    //let tile_size_k = 16;
+    //Each block will calculate x * y many tiles.
+    //let block_x_tiles = 4;
+    //let block_y_tiles = 4;
 
-    let warp_x_tiles = 2;
-    let warp_y_tiles = 2;
+    //Each warp will be used to calculate this geometry of tiles.
+    //let warp_x_tiles = 1;
+    //let warp_y_tiles = 2;
 
-    let block_x_warps = 2;
-    let block_y_warps = 2;
-
-
-    let block_x_tiles = block_x_warps * warp_x_tiles;
-    let block_y_tiles = block_y_warps * warp_y_tiles;
+    //Calculate the rest of the grid geometry
+    let block_x_warps = block_x_tiles / warp_x_tiles;
+    let block_y_warps = block_y_tiles / warp_y_tiles;
 
     let block_size_x = block_x_tiles * tile_size_x;
     let block_size_y = block_y_tiles * tile_size_y;
@@ -658,7 +648,7 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
     let block_total_warps = block_x_warps * block_y_warps;
     let threads_per_block = block_total_warps * wave_size;
 
-    let parallel_blocks = device_mp_count;
+    let parallel_blocks = device_mp_count * pb_factor;
 
     print_string("execute blocked ");
     print_string("(");
@@ -790,17 +780,13 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    //let tile_size_x = 16;
-    //let tile_size_y = 16;
-    //let tile_size_k = 16;
-
     //Each block will calculate x * y many tiles.
-    let block_x_tiles = 4;
-    let block_y_tiles = 4;
+    //let block_x_tiles = 8;
+    //let block_y_tiles = 8;
 
     //Each warp will be used to calculate this geometry of tiles.
-    let warp_x_tiles = 2;
-    let warp_y_tiles = 2;
+    //let warp_x_tiles = 2;
+    //let warp_y_tiles = 4;
 
     //Calculate the rest of the grid geometry
     let block_x_warps = block_x_tiles / warp_x_tiles;
@@ -936,19 +922,19 @@ fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerato
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    //let tile_size_x = 16;
-    //let tile_size_y = 16;
-    //let tile_size_k = 16;
-
     //We run blocks containing block_factor_x * block_factor_y many tiles.
-    let block_factor_x = select(n % (tile_size_x * 2) != 0, 1, select(n % (tile_size_x * 4) != 0, 2, 4));
-    let block_factor_y = select(m % (tile_size_y * 2) != 0, 1, select(m % (tile_size_y * 4) != 0, 2, 4));
+    //let block_factor_x = select(n % (tile_size_x * 2) != 0, 1, select(n % (tile_size_x * 4) != 0, 2, 4));
+    //let block_factor_y = select(m % (tile_size_y * 2) != 0, 1, select(m % (tile_size_y * 4) != 0, 2, 4));
+    let block_factor_x = pb_factor;
+    let block_factor_y = pb_factor;
 
     let matrix_x_threads = n * wave_size / tile_size_x;
     let matrix_y_threads = m / tile_size_y;
 
-    let block_x_threads = wave_size * block_factor_x;
-    let block_y_threads = block_factor_y;
+    let block_x_threads_max = wave_size * block_factor_x;
+    let block_y_threads_max = block_factor_y;
+    let block_x_threads = select(matrix_x_threads < block_x_threads_max, matrix_x_threads, block_x_threads_max);
+    let block_y_threads = select(matrix_y_threads < block_y_threads_max, matrix_y_threads, block_y_threads_max);
 
     print_string("simple wmma configuration: (");
     print_i32(matrix_x_threads);
@@ -989,10 +975,21 @@ fn matrix_multiply_acc_simple (acc : Accelerator, a : Tensor[a_element_type], b 
     //assert(a.x_dim == b.y_dim);
     let k = a.x_dim;
 
-    print_string("ref implementation\n");
+    let block_size_x_max = block_x_tiles * tile_size_x;
+    let block_size_y_max = block_y_tiles * tile_size_y;
 
-    let block_size_x = select(n < 32, n, 32);
-    let block_size_y = select(m < 16, m, 16);
+    let block_size_x = select(n < block_size_x_max, n, block_size_x_max);
+    let block_size_y = select(m < block_size_y_max, m, block_size_y_max);
+
+    print_string("ref implementation: (");
+    print_i32(n);
+    print_string(", ");
+    print_i32(m);
+    print_string(") block size (");
+    print_i32(block_size_x);
+    print_string(", ");
+    print_i32(block_size_y);
+    print_string(")\n");
 
     for work_item in acc.exec((n, m,  1), (block_size_x, block_size_y, 1)) {
         let x = work_item.gidx();

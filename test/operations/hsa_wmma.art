@@ -6,6 +6,16 @@ static tile_size_x = 16;
 static tile_size_y = 16;
 static tile_size_k = 16;
 
+static block_x_tiles = 0;
+static block_y_tiles = 0;
+
+static warp_x_tiles = 0;
+static warp_y_tiles = 0;
+
+static k_shared_tiles = 0;
+static skew_half = 0;
+static pb_factor = 4;
+
 static mut device_mp_count : i32;
 
 static accelerator_time = get_kernel_time;

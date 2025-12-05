@@ -6,12 +6,22 @@ static tile_size_x = 8;
 static tile_size_y = 8;
 static tile_size_k = 16;
 
+static block_x_tiles = 4;
+static block_y_tiles = 4;
+
+static warp_x_tiles = 2;
+static warp_y_tiles = 2;
+
+static k_shared_tiles = 2;
+static skew_half = 0;
+static pb_factor = 4;
+
 static mut device_mp_count : i32;
 
 static accelerator_time = get_kernel_time;
 
 fn @get_accelerator () {
-    let device_number = 0;
+    let device_number = 1;
 
     print_string("Initializing device ");
     print_string(runtime_device_name(runtime_device(5, device_number)));
