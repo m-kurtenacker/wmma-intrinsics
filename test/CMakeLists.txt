@@ -4,13 +4,18 @@ find_package(BLAS REQUIRED)
 
 #option 2, cuda blas lib, requires a shim library to translate functions
 #find_package(CUDAToolkit)
-#add_library(cublas_util cublas_util.cpp)
+#add_library(cublas_util util/cublas_util.cpp)
 #target_link_libraries(cublas_util CUDA::cublas)
-#set(BLAS_LIBRARIES CUDA::cublas cublas_util)
+
+#option 3, rocblas blas lib
+#find_package(rocblas REQUIRED)
+#add_library(rocblas_util util/rocblas_util.cpp)
+#target_link_libraries(rocblas_util roc::rocblas)
 
 function (add_blas_libraries target)
     target_link_libraries(${target} ${BLAS_LIBRARIES})
     #target_link_libraries(${target} CUDA::cublas cublas_util)
+    #target_link_libraries(${target} roc::rocblas rocblas_util)
 endfunction()
 
 function (add_wmma_test)
