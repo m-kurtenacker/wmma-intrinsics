@@ -36,3 +36,4 @@ type spv_mat_b_datatype = battlemage_mat_b_datatype;
 type spv_acc_datatype = battlemage_acc_datatype;
 
 static SPVWMMAOperations = SPVWMMAOperationsBattlemage;
+static SPVWMMAOperationsShared = SPVWMMAOperationsBattlemageAddrspace;
