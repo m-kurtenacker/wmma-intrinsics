@@ -35,5 +35,6 @@ type spv_mat_a_datatype = alchemist_mat_a_datatype;
 type spv_mat_b_datatype = alchemist_mat_b_datatype;
 type spv_acc_datatype = alchemist_acc_datatype;
 
-static SPVWMMAOperations = SPVWMMAOperationsAlchemist;
-static SPVWMMAOperationsShared = SPVWMMAOperationsAlchemistAddrspace;
+static SPVWMMAOperationsGeneric = SPVWMMAOperationsAlchemistGeneric;
+static SPVWMMAOperationsGlobal = SPVWMMAOperationsAlchemistGlobal;
+static SPVWMMAOperationsShared = SPVWMMAOperationsAlchemistShared;
