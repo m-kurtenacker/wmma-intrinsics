@@ -68,12 +68,14 @@ fn main (_argc : i32, argv : &[&[u8]]) -> i32 {
     let c_global_tensor = Tensor[c_element_type] { data = bitcast[&mut[c_element_type]](c_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
     let d_global_tensor = Tensor[c_element_type] { data = bitcast[&mut[c_element_type]](d_cuda_buffer.data), x_dim = N, y_dim = M, addr_mode = clayout, stride = cstride };
 
-    for iteration in range(0, warmup_iterations) {
-        print_string("Warmup ");
-        print_i32(iteration);
-        print_string("\n");
-        accelerated_matmul(acc, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
-        acc.sync();
+    if (warmup_iterations > 0) {
+        for iteration in range(0, warmup_iterations) {
+            print_string("Warmup ");
+            print_i32(iteration);
+            print_string("\n");
+            warmup_matmul(acc, a_global_tensor, b_global_tensor, c_global_tensor, d_global_tensor);
+            acc.sync();
+        }
     }
 
     let mut bench_times : [f32 * benchmark_iterations];

@@ -31,12 +31,12 @@ fn @get_accelerator () {
 
 fn @accelerated_matmul (nvvm : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     if (M % 128 == 0 && N % 128 == 0) {
-        matrix_multiply_acc_tiled [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (nvvm, SimpleMMAOperations(nvvm_read_ptx_sreg_tid_x), a, b, c, d);
+        @matrix_multiply_acc_tiled [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (nvvm, SimpleMMAOperations(nvvm_read_ptx_sreg_tid_x), a, b, c, d);
     } else {
-        matrix_multiply_acc_wmma [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (nvvm, SimpleMMAOperations(nvvm_read_ptx_sreg_tid_x), a, b, c, d);
+        @matrix_multiply_acc_wmma [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (nvvm, SimpleMMAOperations(nvvm_read_ptx_sreg_tid_x), a, b, c, d);
     }
 }
 
-fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    matrix_multiply_naive(a, b, c, d);
+fn @warmup_matmul (nvvm : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    @matrix_multiply_acc_wmma [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (nvvm, SimpleMMAOperations(nvvm_read_ptx_sreg_tid_x), a, b, c, d);
 }

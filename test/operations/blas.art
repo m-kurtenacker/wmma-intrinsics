@@ -104,6 +104,10 @@ fn @accelerated_matmul (_cpu : Accelerator, a : Tensor[a_element_type], b : Tens
     matrix_multiply_blas(a, b, d);
 }
 
+fn @warmup_matmul (cpu : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    @accelerated_matmul (cpu, a, b, c, d);
+}
+
 
 static num_threads = 32;
 static block_size = 64;

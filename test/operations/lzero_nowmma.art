@@ -30,9 +30,9 @@ fn @get_accelerator () {
 }
 
 fn @accelerated_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    matrix_multiply_acc_wmma [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (lzero, SimpleMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
+    @matrix_multiply_acc_wmma [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (lzero, SimpleMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
 }
 
-fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    matrix_multiply_naive(a, b, c, d);
+fn @warmup_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    @matrix_multiply_acc_simple (lzero, a, b, c, d);
 }

@@ -1,0 +1,3 @@
+fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    @matrix_multiply_naive(a, b, c, d);
+}

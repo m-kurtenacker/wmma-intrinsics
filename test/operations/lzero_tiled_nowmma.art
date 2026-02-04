@@ -14,7 +14,7 @@ static warp_y_tiles = 2;
 
 static k_shared_tiles = 0;
 static skew_half = 0;
-static pb_factor = 0;
+static pb_factor = 1;
 
 static mut device_mp_count : i32;
 
@@ -30,13 +30,9 @@ fn @get_accelerator () {
 }
 
 fn @accelerated_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    if (M % 128 == 0 && N % 128 == 0) {
-        matrix_multiply_acc_tiled [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (lzero, SimpleMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
-    } else {
-        matrix_multiply_acc_wmma [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (lzero, SimpleMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
-    }
+    @matrix_multiply_acc_tiled [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (lzero, SimpleMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
 }
 
-fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    matrix_multiply_naive(a, b, c, d);
+fn @warmup_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    @matrix_multiply_acc_wmma [simple_mat_a_datatype, simple_mat_b_datatype, simple_acc_datatype] (lzero, SimpleMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
 }

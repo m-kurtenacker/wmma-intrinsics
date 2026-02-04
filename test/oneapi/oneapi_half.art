@@ -36,6 +36,16 @@ static tile_size_y = 16;
 static tile_size_k = 16;
 static device_mp_count = 1;
 
+static block_x_tiles = 4;
+static block_y_tiles = 4;
+
+static warp_x_tiles = 2;
+static warp_y_tiles = 2;
+
+static k_shared_tiles = 2;
+static skew_half = 0;
+static pb_factor = 4;
+
 static debug_prints = false;
 
 #[export]

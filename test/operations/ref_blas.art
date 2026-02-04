@@ -1,7 +1,3 @@
-fn @accelerated_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    matrix_multiply_acc_simple (lzero, a, b, c, d);
-}
-
 fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
     for x in range(0, c.x_dim) {
         for y in range(0, c.y_dim) {
@@ -9,5 +5,5 @@ fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tens
         }
     }
 
-    matrix_multiply_blas(a, b, d);
+    @matrix_multiply_blas(a, b, d);
 }

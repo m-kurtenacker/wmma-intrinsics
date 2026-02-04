@@ -87,6 +87,6 @@ fn @accelerated_matmul (_cpu : Accelerator, a : Tensor[a_element_type], b : Tens
     }
 }
 
-fn @ref_matmul (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    matrix_multiply_naive(a, b, c, d);
+fn @warmup_matmul (_cpu : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    @matrix_multiply_naive(a, b, c, d);
 }
