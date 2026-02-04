@@ -37,6 +37,7 @@ struct WMMAOperations [mat_a_type, mat_b_type, acc_type] {
     store_d : fn (Tensor[c_element_type], acc_type) -> ()
 }
 
+static print_gpu_config = false;
 
 /* Blocked execution + caching A and B in shared memory to improve memory thoughput for loading these matricies in multiple warps of the same block during multiplication. */
 fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Accelerator, ops : WMMAOperations[mat_a_type, mat_b_type, acc_type], a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
@@ -77,15 +78,17 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
     let matrix_x_threads = matrix_x_blocks * block_x_threads;
     let matrix_y_threads = matrix_y_blocks * block_y_threads;
 
-    print_string("tiled configuration: (");
-    print_i32(matrix_x_threads);
-    print_string(", ");
-    print_i32(matrix_y_threads);
-    print_string(") block size (");
-    print_i32(block_x_threads);
-    print_string(", ");
-    print_i32(block_y_threads);
-    print_string(")\n");
+    if (print_gpu_config) {
+        print_string("tiled configuration: (");
+        print_i32(matrix_x_threads);
+        print_string(", ");
+        print_i32(matrix_y_threads);
+        print_string(") block size (");
+        print_i32(block_x_threads);
+        print_string(", ");
+        print_i32(block_y_threads);
+        print_string(")\n");
+    }
 
     //let k_shared_tiles = 1;
     //let skew_half = 0;
@@ -363,20 +366,22 @@ fn matrix_multiply_acc_blocked [mat_a_type, mat_b_type, acc_type] (acc : Acceler
 
     let parallel_blocks = device_mp_count * pb_factor;
 
-    print_string("execute blocked ");
-    print_string("tiles (");
-    print_i32(warp_x_tiles);
-    print_string(", ");
-    print_i32(warp_y_tiles);
-    print_string(") blocks (");
-    print_i32(matrix_x_blocks);
-    print_string(", ");
-    print_i32(matrix_y_blocks);
-    print_string(") launch (");
-    print_i32(parallel_blocks);
-    print_string(", ");
-    print_i32(threads_per_block);
-    print_string(")\n");
+    if (print_gpu_config) {
+        print_string("execute blocked ");
+        print_string("tiles (");
+        print_i32(warp_x_tiles);
+        print_string(", ");
+        print_i32(warp_y_tiles);
+        print_string(") blocks (");
+        print_i32(matrix_x_blocks);
+        print_string(", ");
+        print_i32(matrix_y_blocks);
+        print_string(") launch (");
+        print_i32(parallel_blocks);
+        print_string(", ");
+        print_i32(threads_per_block);
+        print_string(")\n");
+    }
 
     //let k_shared_tiles = 4;
     //let skew_half = 16;
@@ -650,20 +655,22 @@ fn matrix_multiply_acc_blocked_noshm [mat_a_type, mat_b_type, acc_type] (acc : A
 
     let parallel_blocks = device_mp_count * pb_factor;
 
-    print_string("execute blocked ");
-    print_string("(");
-    print_i32(matrix_x_tiles);
-    print_string(", ");
-    print_i32(matrix_y_tiles);
-    print_string(") (");
-    print_i32(matrix_x_blocks);
-    print_string(", ");
-    print_i32(matrix_y_blocks);
-    print_string(") (");
-    print_i32(parallel_blocks);
-    print_string(", ");
-    print_i32(threads_per_block);
-    print_string(")\n");
+    if (print_gpu_config) {
+        print_string("execute blocked ");
+        print_string("(");
+        print_i32(matrix_x_tiles);
+        print_string(", ");
+        print_i32(matrix_y_tiles);
+        print_string(") (");
+        print_i32(matrix_x_blocks);
+        print_string(", ");
+        print_i32(matrix_y_blocks);
+        print_string(") (");
+        print_i32(parallel_blocks);
+        print_string(", ");
+        print_i32(threads_per_block);
+        print_string(")\n");
+    }
 
     for work_item in acc.exec((parallel_blocks * threads_per_block, 1, 1), (threads_per_block, 1, 1)) {
         let warp_id = work_item.tidx() / wave_size;
@@ -807,15 +814,17 @@ fn matrix_multiply_acc_tiled [mat_a_type, mat_b_type, acc_type] (acc : Accelerat
     let matrix_x_threads = matrix_x_blocks * block_x_threads;
     let matrix_y_threads = matrix_y_blocks * block_y_threads;
 
-    print_string("tiled configuration: (");
-    print_i32(matrix_x_threads);
-    print_string(", ");
-    print_i32(matrix_y_threads);
-    print_string(") block size (");
-    print_i32(block_x_threads);
-    print_string(", ");
-    print_i32(block_y_threads);
-    print_string(")\n");
+    if(print_gpu_config) {
+        print_string("tiled configuration: (");
+        print_i32(matrix_x_threads);
+        print_string(", ");
+        print_i32(matrix_y_threads);
+        print_string(") block size (");
+        print_i32(block_x_threads);
+        print_string(", ");
+        print_i32(block_y_threads);
+        print_string(")\n");
+    }
 
     for work_item in acc.exec((matrix_x_threads, matrix_y_threads,  1), (block_x_threads, block_y_threads, 1)) {
         let warp_x = work_item.gidx() / wave_size * warp_x_tiles * tile_size_x;
@@ -936,15 +945,17 @@ fn matrix_multiply_acc_wmma [mat_a_type, mat_b_type, acc_type] (acc : Accelerato
     let block_x_threads = select(matrix_x_threads < block_x_threads_max, matrix_x_threads, block_x_threads_max);
     let block_y_threads = select(matrix_y_threads < block_y_threads_max, matrix_y_threads, block_y_threads_max);
 
-    print_string("simple wmma configuration: (");
-    print_i32(matrix_x_threads);
-    print_string(", ");
-    print_i32(matrix_y_threads);
-    print_string(") block size (");
-    print_i32(block_x_threads);
-    print_string(", ");
-    print_i32(block_y_threads);
-    print_string(")\n");
+    if (print_gpu_config) {
+        print_string("simple wmma configuration: (");
+        print_i32(matrix_x_threads);
+        print_string(", ");
+        print_i32(matrix_y_threads);
+        print_string(") block size (");
+        print_i32(block_x_threads);
+        print_string(", ");
+        print_i32(block_y_threads);
+        print_string(")\n");
+    }
 
     for work_item in acc.exec((matrix_x_threads, matrix_y_threads,  1), (block_x_threads, block_y_threads, 1)) {
         let tile_x = work_item.gidx() / wave_size * tile_size_x;
@@ -981,15 +992,17 @@ fn matrix_multiply_acc_simple (acc : Accelerator, a : Tensor[a_element_type], b 
     let block_size_x = select(n < block_size_x_max, n, block_size_x_max);
     let block_size_y = select(m < block_size_y_max, m, block_size_y_max);
 
-    print_string("ref implementation: (");
-    print_i32(n);
-    print_string(", ");
-    print_i32(m);
-    print_string(") block size (");
-    print_i32(block_size_x);
-    print_string(", ");
-    print_i32(block_size_y);
-    print_string(")\n");
+    if (print_gpu_config) {
+        print_string("ref implementation: (");
+        print_i32(n);
+        print_string(", ");
+        print_i32(m);
+        print_string(") block size (");
+        print_i32(block_size_x);
+        print_string(", ");
+        print_i32(block_size_y);
+        print_string(")\n");
+    }
 
     for work_item in acc.exec((n, m,  1), (block_size_x, block_size_y, 1)) {
         let x = work_item.gidx();
