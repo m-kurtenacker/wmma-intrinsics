@@ -181,6 +181,12 @@ elseif (BACKEND STREQUAL "levelzero")
     add_wmma_test(NAME wmma_large FILES common.art operations/lzero_wmma.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art)
     add_blas_libraries(wmma_large)
 
+    add_wmma_test(NAME nowmma_large_tiled FILES common.art operations/lzero_nowmma_tiled.art operations/ref_blas.art layouts/large.art)
+    add_blas_libraries(nowmma_large_tiled)
+
+    add_wmma_test(NAME dpas_large FILES common.art operations/lzero_dpas.art operations/ref_blas.art layouts/large.art)
+    add_blas_libraries(dpas_large)
+
     if (BENCHMARK)
         #add_wmma_test(NAME bench_large_simple FILES benchmark.art operations/lzero_ref.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
         #add_wmma_test(NAME bench_large_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)

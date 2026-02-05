@@ -1,0 +1,150 @@
+type a_element_type = f16;
+type b_element_type = f16;
+type c_element_type = f32;
+
+static tile_size_x = 8;
+static tile_size_y = 8;
+static tile_size_k = 16;
+
+static block_x_tiles = 4;
+static block_y_tiles = 4;
+
+static warp_x_tiles = 2;
+static warp_y_tiles = 2;
+
+static k_shared_tiles = 1;
+static skew_half = 0;
+static pb_factor = 4;
+
+static mut device_mp_count : i32;
+
+static accelerator_time = get_kernel_time;
+
+fn @get_accelerator () {
+    let device_number = 0;
+
+    print_string("Initializing device ");
+    print_string(runtime_device_name(runtime_device(5, device_number)));
+    print_string("\n");
+
+    device_mp_count = runtime_device_nodes(runtime_device(5, device_number));
+    levelzero_accelerator(device_number)
+}
+
+type dpas_mat_a_datatype = simd[a_element_type * 16];
+type dpas_mat_b_datatype = [simd[a_element_type * 16] * 2];
+type dpas_acc_datatype = simd[c_element_type * 2];
+
+//This is set up such that 1 thread computes two values in the result matrix.
+fn @DPASMMAOperations(idx_call : fn() -> i32) = WMMAOperations [dpas_mat_a_datatype, dpas_mat_b_datatype, dpas_acc_datatype] {
+    load_a = @|fragment_tensor| {
+        let lane = idx_call() % 32;
+
+        let lane_m = lane / 4;
+
+        let mut mat_a_fragment : simd[a_element_type * 16];
+
+        match fragment_tensor.addr_mode {
+            AddrMode::RowMajor => {
+                let a_element_p = bitcast[&addrspace(1) simd[a_element_type * 16]](&fragment_tensor.data(addr_tensor(0, lane_m, fragment_tensor)));
+                mat_a_fragment = *a_element_p;
+            },
+            _ => {
+                for i in range(0, 16) {
+                    let a_element = fragment_tensor.data(addr_tensor(i, lane_m, fragment_tensor));
+                    mat_a_fragment(i) = a_element;
+                }
+            }
+        }
+
+        mat_a_fragment
+    },
+    load_b = @|fragment_tensor| {
+        let lane = idx_call() % 32;
+
+        let lane_n = (lane % 4) * 2;
+
+        let mut mat_b_fragment : [simd[b_element_type * 16] * 2];
+
+        for i in unroll(0, 2) {
+            match fragment_tensor.addr_mode {
+                AddrMode::ColMajor => {
+                    let b_element_p = bitcast[&addrspace(1) simd[b_element_type * 16]](&fragment_tensor.data(addr_tensor(lane_n + i, 0, fragment_tensor)));
+                    mat_b_fragment(i) = *b_element_p;
+                },
+                _ => {
+                    for j in range(0, 16) {
+                        let b_element = fragment_tensor.data(addr_tensor(lane_n + i, j, fragment_tensor));
+                        mat_b_fragment(i)(j) = b_element;
+                    }
+                }
+            }
+        }
+
+        mat_b_fragment
+    },
+    load_c = @|fragment_tensor| {
+        let lane = idx_call() % 32;
+
+        let lane_n = (lane % 4) * 2;
+        let lane_m = lane / 4;
+
+        let mut mat_c_fragment : dpas_acc_datatype;
+
+        match fragment_tensor.addr_mode {
+            AddrMode::RowMajor => {
+                let c_element_p = bitcast[&addrspace(1) dpas_acc_datatype](&fragment_tensor.data(addr_tensor(lane_n, lane_m, fragment_tensor)));
+                mat_c_fragment = *c_element_p;
+            },
+            _ => {
+                for i in unroll(0, 2) {
+                    let c_element = fragment_tensor.data(addr_tensor(lane_n + i, lane_m, fragment_tensor));
+                    mat_c_fragment(i) = c_element;
+                }
+            }
+        }
+
+        mat_c_fragment
+    },
+    wmma = @|a_fragment, _a_layout, b_fragment, _b_layout, acc_fragment, _c_layout| {
+        let mut result : dpas_acc_datatype;
+
+        result = acc_fragment;
+
+        for i in unroll(0, 2) {
+            let mul_result = a_fragment * b_fragment(i);
+            
+            result(i) += (mul_result(0) + mul_result(1) + mul_result(2) + mul_result(3) + mul_result(4) + mul_result(5) + mul_result(6) + mul_result(7) + mul_result(8) + mul_result(9) + mul_result(10) + mul_result(11) + mul_result(12) + mul_result(13) + mul_result(14) + mul_result(15)) as c_element_type;
+        }
+
+        result
+    },
+    store_d = @|fragment_tensor, acc_fragment| {
+        let lane = idx_call() % 32;
+
+        let lane_n = (lane % 4) * 2;
+        let lane_m = lane / 4;
+
+        match fragment_tensor.addr_mode {
+            AddrMode::RowMajor => {
+                    let d_element_p = bitcast[&mut addrspace(1) dpas_acc_datatype](&fragment_tensor.data(addr_tensor(lane_n, lane_m, fragment_tensor)));
+                    *d_element_p = acc_fragment;
+            },
+            _ => {
+                for i in unroll(0, 2) {
+                    fragment_tensor.data(addr_tensor(lane_n + i, lane_m, fragment_tensor)) = acc_fragment(i);
+                }
+            }
+        }
+    }
+};
+
+fn @accelerated_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    //@matrix_multiply_acc_tiled_shmem [dpas_mat_a_datatype, dpas_mat_b_datatype, dpas_acc_datatype] (lzero, DPASMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
+    @matrix_multiply_acc_tiled [dpas_mat_a_datatype, dpas_mat_b_datatype, dpas_acc_datatype] (lzero, DPASMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
+}
+
+fn @warmup_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
+    //@matrix_multiply_acc_simple (lzero, a, b, c, d);
+    @matrix_multiply_acc_wmma [dpas_mat_a_datatype, dpas_mat_b_datatype, dpas_acc_datatype] (lzero, DPASMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
+}
