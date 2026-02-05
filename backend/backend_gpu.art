@@ -197,7 +197,7 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
                             let global_k = global_k_sliced + local_k;
 
                             let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
-                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
+                            let target_ptr = bitcast[&mut addrspace(3) simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
                             *target_ptr = *src_ptr;
                         }
                     },
@@ -214,7 +214,7 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
                             let global_k = global_k_sliced + local_k;
 
                             let src_ptr = bitcast[&simd[i32 * 4]](&a.data(addr_tensor(global_k, global_y, a)));
-                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
+                            let target_ptr = bitcast[&mut addrspace(3) simd[i32 * 4]](&mut a_shared_tensor.data(addr_tensor(local_k, local_y, a_shared_tensor)));
                             *target_ptr = *src_ptr;
                         }
                     }
@@ -236,7 +236,7 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
                             let global_k = global_k_sliced + local_k;
 
                             let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
-                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
+                            let target_ptr = bitcast[&mut addrspace(3) simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
                             *target_ptr = *src_ptr;
                         }
                     },
@@ -253,7 +253,7 @@ fn matrix_multiply_acc_tiled_shmem [mat_a_type, mat_b_type, acc_type] (acc : Acc
                             let global_k = global_k_sliced + local_k;
 
                             let src_ptr = bitcast[&simd[i32 * 4]](&b.data(addr_tensor(global_x, global_k, b)));
-                            let target_ptr = bitcast[&mut simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
+                            let target_ptr = bitcast[&mut addrspace(3) simd[i32 * 4]](&mut b_shared_tensor.data(addr_tensor(local_x, local_k, b_shared_tensor)));
                             *target_ptr = *src_ptr;
                         }
                     }

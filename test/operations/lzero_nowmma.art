@@ -6,8 +6,8 @@ static tile_size_x = 16;
 static tile_size_y = 16;
 static tile_size_k = 16;
 
-static block_x_tiles = 0;
-static block_y_tiles = 0;
+static block_x_tiles = 2;
+static block_y_tiles = 2;
 
 static warp_x_tiles = 0;
 static warp_y_tiles = 0;
