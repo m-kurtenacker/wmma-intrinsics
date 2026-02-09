@@ -6,15 +6,17 @@ static tile_size_x = 8;
 static tile_size_y = 8;
 static tile_size_k = 16;
 
-static block_x_tiles = 4;
-static block_y_tiles = 4;
+/*
+   static block_x_tiles = 4;
+   static block_y_tiles = 4;
 
-static warp_x_tiles = 2;
-static warp_y_tiles = 2;
+   static warp_x_tiles = 2;
+   static warp_y_tiles = 2;
 
-static k_shared_tiles = 1;
-static skew_half = 0;
-static pb_factor = 4;
+   static k_shared_tiles = 1;
+   static skew_half = 0;
+   static pb_factor = 1;
+ */
 
 static mut device_mp_count : i32;
 
@@ -140,11 +142,9 @@ fn @DPASMMAOperations(idx_call : fn() -> i32) = WMMAOperations [dpas_mat_a_datat
 };
 
 fn @accelerated_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    //@matrix_multiply_acc_tiled_shmem [dpas_mat_a_datatype, dpas_mat_b_datatype, dpas_acc_datatype] (lzero, DPASMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
     @matrix_multiply_acc_tiled [dpas_mat_a_datatype, dpas_mat_b_datatype, dpas_acc_datatype] (lzero, DPASMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
 }
 
 fn @warmup_matmul (lzero : Accelerator, a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor[c_element_type], d : Tensor[c_element_type]) -> () {
-    //@matrix_multiply_acc_simple (lzero, a, b, c, d);
     @matrix_multiply_acc_wmma [dpas_mat_a_datatype, dpas_mat_b_datatype, dpas_acc_datatype] (lzero, DPASMMAOperations(@|| { spv_levelzero_get_local_id()(0) as i32 }), a, b, c, d);
 }
