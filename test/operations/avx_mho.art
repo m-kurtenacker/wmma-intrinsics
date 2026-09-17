@@ -1,6 +1,6 @@
-type a_element_type = f64;
-type b_element_type = f64;
-type c_element_type = f64;
+type a_element_type = f32;
+type b_element_type = f32;
+type c_element_type = f32;
 
 static tile_size_x = 0;
 static tile_size_y = 0;
@@ -18,11 +18,11 @@ static pb_factor = 0;
 
 static mut device_mp_count : i32;
 
-static simd_lanes = 4;
+static simd_lanes = 8;
 static unroll_steps = 16;
 static block_size = 64;
 
-#[import(cc = "device", name = "llvm.fma.v4f64")] fn avx_fma(_a: simd[f64 * 4], _b: simd[f64 * 4], _c: simd[f64 * 4]) -> simd[f64 * 4];
+#[import(cc = "device", name = "llvm.fma.v8f32")] fn avx_fma(_a: simd[f32 * 8], _b: simd[f32 * 8], _c: simd[f32 * 8]) -> simd[f32 * 8];
 #[import(cc = "C", name = "aligned_alloc")] fn aligned_alloc(_alignment: i64, _size: i64) -> &mut [i8];
 
 static accelerator_time = get_micro_time;
@@ -85,10 +85,10 @@ fn @do_block (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor
 
     for y in range(0, m) { // y = i in matmul-avx.cpp
         for x in range_step(0, n, simd_lanes * unroll_steps) { // x = j in matmul-avx.cpp
-            let mut cv : [simd[f64 * simd_lanes] * unroll_steps];
+            let mut cv : [simd[f32 * simd_lanes] * unroll_steps];
 
             for r in unroll(0, unroll_steps) {
-                cv(r) = *bitcast[&simd[f64 * simd_lanes]](&c.data(addr_tensor(x + r * simd_lanes, y, c)));
+                cv(r) = *bitcast[&simd[f32 * simd_lanes]](&c.data(addr_tensor(x + r * simd_lanes, y, c)));
             }
 
             for i in range(0, k) {
@@ -96,9 +96,9 @@ fn @do_block (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor
                     let mut rv = cv(r);
 
                     let avl = a.data(addr_tensor(i, y, a));
-                    let av = simd[avl, avl, avl, avl] : simd[f64 * 4];
+                    let av = simd[avl, avl, avl, avl, avl, avl, avl, avl] : simd[f32 * 8];
 
-                    let bv = *bitcast[&simd[f64 * simd_lanes]](&b.data(addr_tensor(x + r * simd_lanes, i, b)));
+                    let bv = *bitcast[&simd[f32 * simd_lanes]](&b.data(addr_tensor(x + r * simd_lanes, i, b)));
 
                     rv = avx_fma(av, bv, rv);
 
@@ -107,7 +107,7 @@ fn @do_block (a : Tensor[a_element_type], b : Tensor[b_element_type], c : Tensor
             }
 
             for r in unroll(0, unroll_steps) {
-                *bitcast[&mut simd[f64 * simd_lanes]](&d.data(addr_tensor(x + r * simd_lanes, y, d))) = cv(r);
+                *bitcast[&mut simd[f32 * simd_lanes]](&d.data(addr_tensor(x + r * simd_lanes, y, d))) = cv(r);
             }
         }
     }
