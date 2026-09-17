@@ -18,10 +18,13 @@ df = df.drop(columns=[0, 1, 4, 7, 9, 13, 15]).rename(columns={2: "x", 3: "y", 5:
 #Go through the failed tests list and remove invalid entries!
 if len(sys.argv) > 3:
     filter_file = sys.argv[2]
-    filter_df = pd.read_csv(filter_file, sep=r"_", header=None)
-    #filter_df = filter_df.drop(columns=[0, 1, 4, 7, 11, 13, 17]).rename(columns={2: "x", 3: "y", 5: "wx", 6: "wy", 8: "la", 9: "lb", 10: "lc", 12: "ks", 14: "sk", 15: "target", 16: "name"}).assign(pb=1)
-    filter_df = filter_df.drop(columns=[0, 1, 4, 7, 9, 13, 15, 19]).rename(columns={2: "x", 3: "y", 5: "wx", 6: "wy", 8: "pb", 10: "la", 11: "lb", 12: "lc", 14: "ks", 16: "sk", 17: "target", 18: "name"})
-    df = pd.merge(df, filter_df, how="outer", indicator=True).query('_merge == "left_only"').drop(columns=["_merge"])
+    try:
+        filter_df = pd.read_csv(filter_file, sep=r"_", header=None)
+        #filter_df = filter_df.drop(columns=[0, 1, 4, 7, 11, 13, 17]).rename(columns={2: "x", 3: "y", 5: "wx", 6: "wy", 8: "la", 9: "lb", 10: "lc", 12: "ks", 14: "sk", 15: "target", 16: "name"}).assign(pb=1)
+        filter_df = filter_df.drop(columns=[0, 1, 4, 7, 9, 13, 15, 19]).rename(columns={2: "x", 3: "y", 5: "wx", 6: "wy", 8: "pb", 10: "la", 11: "lb", 12: "lc", 14: "ks", 16: "sk", 17: "target", 18: "name"})
+        df = pd.merge(df, filter_df, how="outer", indicator=True).query('_merge == "left_only"').drop(columns=["_merge"])
+    except FileNotFoundError:
+        print("warning: fail file declared but file not found")
 
 
 if len(sys.argv) > 3:

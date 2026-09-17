@@ -146,12 +146,39 @@ elseif (BACKEND STREQUAL "levelzero")
     set(LZ_TARGET "alchemist" CACHE STRING "select the target architecture for level zero, options are alchemist and battlemage")
     set_property(CACHE LZ_TARGET PROPERTY STRINGS alchemist battlemage)
 
-    add_wmma_test(NAME simple FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art layouts/simple.art)
-    add_wmma_test(NAME layout FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art layouts/layout.art)
-    add_wmma_test(NAME medium FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art layouts/medium.art)
+    add_wmma_test(NAME simple FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/simple.art)
+    add_wmma_test(NAME layout FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/layout.art)
+    add_wmma_test(NAME medium FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/medium.art)
 
     add_wmma_test(NAME nowmma FILES common.art operations/lzero_nowmma.art operations/ref_naive.art layouts/simple.art)
     add_wmma_test(NAME medium_nowmma FILES common.art operations/lzero_tiled_nowmma.art operations/ref_naive.art layouts/medium.art)
+
+    add_wmma_test(NAME large  FILES common.art operations/lzero_ref.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_blas_libraries(large)
+
+    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_blas_libraries(large_tiled)
+
+    add_wmma_test(NAME large_ref  FILES common.art operations/lzero_tiled_shmem.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_blas_libraries(large_ref)
+
+    add_wmma_test(NAME large_blocked  FILES common.art operations/lzero_blocked.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_blas_libraries(large_blocked)
+
+    add_wmma_test(NAME nowmma_large FILES common.art operations/lzero_nowmma.art operations/ref_blas.art layouts/large.art)
+    add_blas_libraries(nowmma_large)
+
+    add_wmma_test(NAME wmma_large FILES common.art operations/lzero_wmma.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_blas_libraries(wmma_large)
+
+    add_wmma_test(NAME nowmma_large_tiled FILES common.art operations/lzero_nowmma_tiled.art operations/ref_blas.art layouts/large.art)
+    add_blas_libraries(nowmma_large_tiled)
+
+    #add_wmma_test(NAME dpas_large FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art layouts/large.art)
+    #add_blas_libraries(dpas_large)
+
+    #add_wmma_test(NAME dpas_shmem_large FILES common.art operations/lzero_dpas_shmem_${LZ_TARGET}.art operations/ref_blas.art layouts/large.art)
+    #add_blas_libraries(dpas_shmem_large)
 
     file(GLOB GENERATED_TESTS generated/test_*.art)
     if(NOT GENERATED_TESTS)
@@ -160,41 +187,30 @@ elseif (BACKEND STREQUAL "levelzero")
     foreach(_case ${GENERATED_TESTS})
         get_filename_component(TESTNAME ${_case} NAME_WLE)
 
-        message(STATUS "Generated test ${TESTNAME}_alchemist_dpas")
-        add_wmma_test(NAME ${TESTNAME}_alchemist_dpas FILES common.art operations/lzero_dpas.art operations/ref_blas.art ${_case})
-        add_blas_libraries(${TESTNAME}_alchemist_dpas)
+        #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_tiled")
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_tiled FILES common.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c)
+        #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_tiled)
 
-        message(STATUS "Generated test ${TESTNAME}_alchemist_dpas-shmem")
-        add_wmma_test(NAME ${TESTNAME}_alchemist_dpas-shmem FILES common.art operations/lzero_dpas_shmem.art operations/ref_blas.art ${_case})
-        add_blas_libraries(${TESTNAME}_alchemist_dpas-shmem)
+        #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_blocked")
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_blocked FILES common.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c)
+        #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_blocked)
+
+        #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_shmem")
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_shmem FILES common.art operations/lzero_tiled_shmem.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c)
+        #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_shmem)
+
+        #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_wmma")
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_wmma FILES common.art operations/lzero_wmma.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case})
+        #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_wmma)
+
+        #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas")
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art ${_case})
+        #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_dpas)
+
+        message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas-shmem")
+        add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas-shmem FILES common.art operations/lzero_dpas_shmem_${LZ_TARGET}.art operations/ref_blas.art ${_case})
+        add_blas_libraries(${TESTNAME}_${LZ_TARGET}_dpas-shmem)
     endforeach()
-
-    add_wmma_test(NAME large  FILES common.art operations/lzero_ref.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art)
-    add_blas_libraries(large)
-
-    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art)
-    add_blas_libraries(large_tiled)
-
-    add_wmma_test(NAME large_ref  FILES common.art operations/lzero_tiled_shmem.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art)
-    add_blas_libraries(large_ref)
-
-    add_wmma_test(NAME large_blocked  FILES common.art operations/lzero_blocked.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art)
-    add_blas_libraries(large_blocked)
-
-    add_wmma_test(NAME nowmma_large FILES common.art operations/lzero_nowmma.art operations/ref_blas.art layouts/large.art)
-    add_blas_libraries(nowmma_large)
-
-    add_wmma_test(NAME wmma_large FILES common.art operations/lzero_wmma.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art)
-    add_blas_libraries(wmma_large)
-
-    add_wmma_test(NAME nowmma_large_tiled FILES common.art operations/lzero_nowmma_tiled.art operations/ref_blas.art layouts/large.art)
-    add_blas_libraries(nowmma_large_tiled)
-
-    #add_wmma_test(NAME dpas_large FILES common.art operations/lzero_dpas.art operations/ref_blas.art layouts/large.art)
-    #add_blas_libraries(dpas_large)
-
-    #add_wmma_test(NAME dpas_shmem_large FILES common.art operations/lzero_dpas_shmem.art operations/ref_blas.art layouts/large.art)
-    #add_blas_libraries(dpas_shmem_large)
 
     if (BENCHMARK)
         #add_wmma_test(NAME bench_large_simple FILES benchmark.art operations/lzero_ref.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
@@ -203,34 +219,45 @@ elseif (BACKEND STREQUAL "levelzero")
         #add_wmma_test(NAME bench_large_blocked FILES benchmark.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
         #add_wmma_test(NAME bench_large_blocked_noshm FILES benchmark.art operations/lzero_blocked_noshm.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
 
-        #file(GLOB GENERATED_TESTS generated/bench_*.art)
-        #if(NOT GENERATED_TESTS)
-        #    message(STATUS "No generated tests found. Consider generating with `python generate-cases.py`")
-        #endif()
-        #foreach(_case ${GENERATED_TESTS})
-        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
-        #    message(STATUS "Generated test ${TESTNAME}_tiled")
-        #    add_wmma_test(NAME ${TESTNAME}_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
-        #endforeach()
-        #foreach(_case ${GENERATED_TESTS})
-        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
-        #    message(STATUS "Generated test ${TESTNAME}_blocked")
-        #    add_wmma_test(NAME ${TESTNAME}_blocked FILES benchmark.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
-        #endforeach()
-        #foreach(_case ${GENERATED_TESTS})
-        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
-        #    message(STATUS "Generated test ${TESTNAME}_blocked_noshm")
-        #    add_wmma_test(NAME ${TESTNAME}_blocked_noshm FILES benchmark.art operations/lzero_blocked_noshm.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
-        #endforeach()
         file(GLOB GENERATED_TESTS generated/bench_*.art)
+        if(NOT GENERATED_TESTS)
+            message(STATUS "No generated benchmarks found. Consider generating with `python generate-cases.py`")
+        endif()
+
+        #foreach(_case ${GENERATED_TESTS})
+        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
+        #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_tiled")
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #endforeach()
+
+        #foreach(_case ${GENERATED_TESTS})
+        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
+        #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_blocked")
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_blocked FILES benchmark.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #endforeach()
+
+        #foreach(_case ${GENERATED_TESTS})
+        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
+        #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_shmem")
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_shmem FILES benchmark.art operations/lzero_tiled_shmem.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #endforeach()
+
+        #foreach(_case ${GENERATED_TESTS})
+        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
+        #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_wmma")
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_wmma FILES benchmark.art operations/lzero_wmma.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #endforeach()
+
+        #foreach(_case ${GENERATED_TESTS})
+        #    get_filename_component(TESTNAME ${_case} NAME_WLE)
+        #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas")
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas FILES benchmark.art operations/lzero_dpas_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #endforeach()
+
         foreach(_case ${GENERATED_TESTS})
             get_filename_component(TESTNAME ${_case} NAME_WLE)
-
-            message(STATUS "Generated benchmark ${TESTNAME}_alchemist_dpas")
-            add_wmma_test(NAME ${TESTNAME}_alchemist_dpas FILES benchmark.art operations/lzero_dpas.art ${_case} UTILS util/benchmark_util.c)
-
-            message(STATUS "Generated benchmark ${TESTNAME}_alchemist_dpas-shmem")
-            add_wmma_test(NAME ${TESTNAME}_alchemist_dpas-shmem FILES benchmark.art operations/lzero_dpas_shmem.art ${_case} UTILS util/benchmark_util.c)
+            message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas-shmem")
+            add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas-shmem FILES benchmark.art operations/lzero_dpas_shmem_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
         endforeach()
     endif()
 elseif (BACKEND STREQUAL "avx")
