@@ -1,3 +1,8 @@
+static swizzle_a_static = 0;
+static swizzle_b_static = 0;
+static swizzle_a_dynamic = 0;
+static swizzle_b_dynamic = 0;
+
 static block_x_tiles = 4;
 static block_y_tiles = 4;
 

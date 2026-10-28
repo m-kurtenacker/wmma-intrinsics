@@ -42,10 +42,16 @@ def generate_test_all(name, x, y, xw, yw, pb, l1, l2, l3, kshare, skew):
 
 layouts = ["row", "col"]
 block_size = [2, 4, 8]
-warp_size = [1, 2, 4]
+warp_size = [2, 4, 8]
 k_shared_tiles = [1, 2, 4]
 skew_half = [0, 16]
-pb_factor = [2, 4, 8, 12, 16]
+pb_factor = [2, 4, 8]
+
+#block_size = [8]
+#warp_size = [4]
+#k_shared_tiles = [2, 4]
+#skew_half = [16]
+#pb_factor = [4]
 
 """
 Used to test blas.
@@ -59,10 +65,9 @@ for l1, l2 in product(layouts, layouts):
 Used to test the tiled_shmem variant.
 """
 
-for l2, x, y, xw, yw, kshare, skew in product(layouts, block_size, block_size, warp_size, warp_size, k_shared_tiles, skew_half):
+for l2, x, y, xw, yw, kshare, skew, pb in product(layouts, block_size, block_size, warp_size, warp_size, k_shared_tiles, skew_half, pb_factor):
     l1 = "row"
     l3 = "row"
-    pb = 1
 
     if x % xw != 0:
         continue

@@ -1,9 +1,16 @@
+static swizzle_a_static = 0;
+static swizzle_b_static = 0;
+static swizzle_a_dynamic = 0;
+static swizzle_b_dynamic = 0;
+
 static block_x_tiles = 2;
-static block_y_tiles = 2;
+static block_y_tiles = 8;
 
-static warp_x_tiles = 1;
-static warp_y_tiles = 2;
+static warp_x_tiles = 2;
+static warp_y_tiles = 1;
 
-static k_shared_tiles = 1;
+static k_shared_tiles = 2;
 static skew_half = 0;
-static pb_factor = 1;
+static pb_factor = 4;
+
+static prefetch_distance = 1;
