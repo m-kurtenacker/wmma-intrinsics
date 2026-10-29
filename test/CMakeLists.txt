@@ -23,7 +23,7 @@ function (add_wmma_test)
         "PARGS"
         ""
         "NAME"
-        "FILES;UTILS"
+        "FILES;UTILS;FLAGS"
         ${ARGN})
 
     string(TOUPPER ${PARGS_NAME} _name)
@@ -32,6 +32,7 @@ function (add_wmma_test)
         FRONTEND "artic"
         NAME ${PARGS_NAME}
         FILES ${BACKEND_FILES} ${PARGS_FILES}
+        ARTIC_FLAGS ${PARGS_FLAGS}
     )
 
     add_executable(${PARGS_NAME} ${${_name}_OBJ} ${PARGS_UTILS})
@@ -154,54 +155,54 @@ elseif (BACKEND STREQUAL "levelzero")
     set(LZ_TARGET "alchemist" CACHE STRING "select the target architecture for level zero, options are alchemist and battlemage")
     set_property(CACHE LZ_TARGET PROPERTY STRINGS alchemist battlemage)
 
-    add_wmma_test(NAME simple FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/simple.art)
+    add_wmma_test(NAME simple FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/simple.art FLAGS "--spirv-subgroup-size" "32")
 
-    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     add_blas_libraries(large_tiled)
 
-    add_wmma_test(NAME large_dpas  FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_wmma_test(NAME large_dpas  FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     add_blas_libraries(large_dpas)
 
-    add_wmma_test(NAME bench_large_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art UTILS util/benchmark_util.c)
-    add_wmma_test(NAME bench_large_dpas FILES benchmark.art operations/lzero_dpas_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art UTILS util/benchmark_util.c)
+    add_wmma_test(NAME bench_large_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
+    add_wmma_test(NAME bench_large_dpas FILES benchmark.art operations/lzero_dpas_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
 
     if (FALSE)
 
-    add_wmma_test(NAME simple FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/simple.art)
-    add_wmma_test(NAME layout FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/layout.art)
-    add_wmma_test(NAME medium FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/medium.art)
+    add_wmma_test(NAME simple FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/simple.art FLAGS "--spirv-subgroup-size" "32")
+    add_wmma_test(NAME layout FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/layout.art FLAGS "--spirv-subgroup-size" "32")
+    add_wmma_test(NAME medium FILES common.art operations/lzero_ref.art operations/ref_naive.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/medium.art FLAGS "--spirv-subgroup-size" "32")
 
-    #add_wmma_test(NAME nowmma FILES common.art operations/lzero_nowmma.art operations/ref_naive.art layouts/simple.art)
-    #add_wmma_test(NAME medium_nowmma FILES common.art operations/lzero_tiled_nowmma.art operations/ref_naive.art layouts/medium.art)
+    #add_wmma_test(NAME nowmma FILES common.art operations/lzero_nowmma.art operations/ref_naive.art layouts/simple.art FLAGS "--spirv-subgroup-size" "32")
+    #add_wmma_test(NAME medium_nowmma FILES common.art operations/lzero_tiled_nowmma.art operations/ref_naive.art layouts/medium.art FLAGS "--spirv-subgroup-size" "32")
 
-    add_wmma_test(NAME large  FILES common.art operations/lzero_ref.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_wmma_test(NAME large  FILES common.art operations/lzero_ref.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     add_blas_libraries(large)
 
-    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_wmma_test(NAME large_tiled  FILES common.art operations/lzero_tiled.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     add_blas_libraries(large_tiled)
 
-    add_wmma_test(NAME large_ref  FILES common.art operations/lzero_tiled_shmem.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_wmma_test(NAME large_ref  FILES common.art operations/lzero_tiled_shmem.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     add_blas_libraries(large_ref)
 
-    add_wmma_test(NAME large_blocked  FILES common.art operations/lzero_blocked.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_wmma_test(NAME large_blocked  FILES common.art operations/lzero_blocked.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     add_blas_libraries(large_blocked)
 
-    #add_wmma_test(NAME large_swizzle  FILES common.art operations/lzero_swizzle.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    #add_wmma_test(NAME large_swizzle  FILES common.art operations/lzero_swizzle.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     #add_blas_libraries(large_swizzle)
 
-    #add_wmma_test(NAME nowmma_large FILES common.art operations/lzero_nowmma.art operations/ref_blas.art layouts/large.art)
+    #add_wmma_test(NAME nowmma_large FILES common.art operations/lzero_nowmma.art operations/ref_blas.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     #add_blas_libraries(nowmma_large)
 
-    add_wmma_test(NAME wmma_large FILES common.art operations/lzero_wmma.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art)
+    add_wmma_test(NAME wmma_large FILES common.art operations/lzero_wmma.art operations/ref_blas.art operations/lzero_tiling_${LZ_TARGET}.art operations/lzero_tiling_${LZ_TARGET}_geometry.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     add_blas_libraries(wmma_large)
 
-    #add_wmma_test(NAME nowmma_large_tiled FILES common.art operations/lzero_nowmma_tiled.art operations/ref_blas.art layouts/large.art)
+    #add_wmma_test(NAME nowmma_large_tiled FILES common.art operations/lzero_nowmma_tiled.art operations/ref_blas.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     #add_blas_libraries(nowmma_large_tiled)
 
-    #add_wmma_test(NAME dpas_large FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art layouts/large.art)
+    #add_wmma_test(NAME dpas_large FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     #add_blas_libraries(dpas_large)
 
-    #add_wmma_test(NAME dpas_shmem_large FILES common.art operations/lzero_dpas_shmem_${LZ_TARGET}.art operations/ref_blas.art layouts/large.art)
+    #add_wmma_test(NAME dpas_shmem_large FILES common.art operations/lzero_dpas_shmem_${LZ_TARGET}.art operations/ref_blas.art layouts/large.art FLAGS "--spirv-subgroup-size" "32")
     #add_blas_libraries(dpas_shmem_large)
 
     file(GLOB GENERATED_TESTS generated/test_*.art)
@@ -212,40 +213,40 @@ elseif (BACKEND STREQUAL "levelzero")
         get_filename_component(TESTNAME ${_case} NAME_WLE)
 
         #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_tiled")
-        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_tiled FILES common.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c)
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_tiled FILES common.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_tiled)
 
         #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_blocked")
-        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_blocked FILES common.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c)
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_blocked FILES common.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_blocked)
 
         #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_shmem")
-        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_shmem FILES common.art operations/lzero_tiled_shmem.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c)
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_shmem FILES common.art operations/lzero_tiled_shmem.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_shmem)
 
         #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_wmma")
-        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_wmma FILES common.art operations/lzero_wmma.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case})
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_wmma FILES common.art operations/lzero_wmma.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} FLAGS "--spirv-subgroup-size" "32")
         #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_wmma)
 
         #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas")
-        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art ${_case})
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas FILES common.art operations/lzero_dpas_${LZ_TARGET}.art operations/ref_blas.art ${_case} FLAGS "--spirv-subgroup-size" "32")
         #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_dpas)
 
         #message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas-shmem")
-        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas-shmem FILES common.art operations/lzero_dpas_shmem_${LZ_TARGET}.art operations/ref_blas.art ${_case})
+        #add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas-shmem FILES common.art operations/lzero_dpas_shmem_${LZ_TARGET}.art operations/ref_blas.art ${_case} FLAGS "--spirv-subgroup-size" "32")
         #add_blas_libraries(${TESTNAME}_${LZ_TARGET}_dpas-shmem)
 
         message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_swizzle")
-        add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_swizzle FILES common.art operations/lzero_swizzle.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case})
+        add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_swizzle FILES common.art operations/lzero_swizzle.art operations/lzero_tiling_${LZ_TARGET}.art operations/ref_blas.art ${_case} FLAGS "--spirv-subgroup-size" "32")
         add_blas_libraries(${TESTNAME}_${LZ_TARGET}_swizzle)
     endforeach()
 
     if (BENCHMARK)
-        #add_wmma_test(NAME bench_large_simple FILES benchmark.art operations/lzero_ref.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
-        #add_wmma_test(NAME bench_large_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
-        #add_wmma_test(NAME bench_large_nowmma FILES benchmark.art operations/lzero_tiled_nowmma.art layouts/large.art UTILS util/benchmark_util.c)
-        #add_wmma_test(NAME bench_large_blocked FILES benchmark.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
-        #add_wmma_test(NAME bench_large_blocked_noshm FILES benchmark.art operations/lzero_blocked_noshm.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c)
+        #add_wmma_test(NAME bench_large_simple FILES benchmark.art operations/lzero_ref.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
+        #add_wmma_test(NAME bench_large_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
+        #add_wmma_test(NAME bench_large_nowmma FILES benchmark.art operations/lzero_tiled_nowmma.art layouts/large.art UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
+        #add_wmma_test(NAME bench_large_blocked FILES benchmark.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
+        #add_wmma_test(NAME bench_large_blocked_noshm FILES benchmark.art operations/lzero_blocked_noshm.art operations/lzero_tiling_${LZ_TARGET}.art layouts/large.art UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
 
         file(GLOB GENERATED_TESTS generated/bench_*.art)
         if(NOT GENERATED_TESTS)
@@ -255,37 +256,37 @@ elseif (BACKEND STREQUAL "levelzero")
         #foreach(_case ${GENERATED_TESTS})
         #    get_filename_component(TESTNAME ${_case} NAME_WLE)
         #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_tiled")
-        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_tiled FILES benchmark.art operations/lzero_tiled.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #endforeach()
 
         #foreach(_case ${GENERATED_TESTS})
         #    get_filename_component(TESTNAME ${_case} NAME_WLE)
         #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_blocked")
-        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_blocked FILES benchmark.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_blocked FILES benchmark.art operations/lzero_blocked.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #endforeach()
 
         #foreach(_case ${GENERATED_TESTS})
         #    get_filename_component(TESTNAME ${_case} NAME_WLE)
         #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_shmem")
-        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_shmem FILES benchmark.art operations/lzero_tiled_shmem.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_shmem FILES benchmark.art operations/lzero_tiled_shmem.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #endforeach()
 
         #foreach(_case ${GENERATED_TESTS})
         #    get_filename_component(TESTNAME ${_case} NAME_WLE)
         #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_wmma")
-        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_wmma FILES benchmark.art operations/lzero_wmma.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_wmma FILES benchmark.art operations/lzero_wmma.art operations/lzero_tiling_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #endforeach()
 
         #foreach(_case ${GENERATED_TESTS})
         #    get_filename_component(TESTNAME ${_case} NAME_WLE)
         #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas")
-        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas FILES benchmark.art operations/lzero_dpas_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas FILES benchmark.art operations/lzero_dpas_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #endforeach()
 
         #foreach(_case ${GENERATED_TESTS})
         #    get_filename_component(TESTNAME ${_case} NAME_WLE)
         #    message(STATUS "Generated test ${TESTNAME}_${LZ_TARGET}_dpas-shmem")
-        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas-shmem FILES benchmark.art operations/lzero_dpas_shmem_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c)
+        #    add_wmma_test(NAME ${TESTNAME}_${LZ_TARGET}_dpas-shmem FILES benchmark.art operations/lzero_dpas_shmem_${LZ_TARGET}.art ${_case} UTILS util/benchmark_util.c FLAGS "--spirv-subgroup-size" "32")
         #endforeach()
     endif()
 
